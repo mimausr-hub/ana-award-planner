@@ -1,0 +1,30 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>アイコン案</title>
+<style>
+body{font-family:-apple-system,"Hiragino Sans",sans-serif;margin:0;padding:24px;background:#f3f6fb;color:#1f2937}
+h1{font-size:18px;margin:0 0 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:16px}
+.card h2{font-size:15px;margin:0 0 10px}
+.sizes{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.sizes div{text-align:center;font-size:11px;color:#6b7280}
+.sizes img{display:block;margin:0 auto 4px}
+.hdr{margin-top:14px;display:flex;align-items:center;gap:8px;padding:10px 14px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;font-weight:700;font-size:15px}
+.hdr img{width:22px;height:22px;border-radius:5px}
+.dark{background:#0f172a;color:#e6edf6;border-color:#1f2937}
+.tab{display:inline-flex;align-items:center;gap:6px;font-size:12px;background:#e5e7eb;padding:4px 10px;border-radius:8px 8px 0 0;color:#374151;margin-top:10px}
+.tab img{width:16px;height:16px}
+.phone{margin-top:12px;display:inline-block;background:linear-gradient(160deg,#c7d2fe,#fbcfe8);padding:14px;border-radius:18px}
+.phone img{width:60px;height:60px;border-radius:14px;display:block;box-shadow:0 4px 10px rgba(0,0,0,.2)}
+.phone div{font-size:10px;text-align:center;color:#111;margin-top:4px}
+</style></head><body>
+<h1>アイコン案（航空券モチーフ）</h1>
+<div class="grid" id="g"></div>
+<script>
+const C=[['A 搭乗券（半券＋バーコード）','a-boarding-pass.svg'],['B チケット＋離陸の航跡','b-ticket-trail.svg'],['C 往復の搭乗券 2 枚','c-two-tickets.svg'],['D ミニマル（飛行機の切り抜き）','d-minimal-cutout.svg']];
+document.getElementById('g').innerHTML=C.map(([n,f])=>`<div class="card"><h2>${n}</h2>
+<div class="sizes">${[192,96,48,32,16].map(s=>`<div><img src="${f}" width="${s}" height="${s}">${s}px</div>`).join('')}</div>
+<div class="tab"><img src="${f}"> ANA特典航空券プランナー</div>
+<div class="hdr"><img src="${f}"> ANA特典航空券プランナー</div>
+<div class="hdr dark"><img src="${f}"> ANA特典航空券プランナー</div>
+<div class="phone"><img src="${f}"><div>特典プランナー</div></div></div>`).join('');
+</script></body></html>

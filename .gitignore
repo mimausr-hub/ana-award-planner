@@ -1,0 +1,6 @@
+.seats_aero_key
+__pycache__/
+.DS_Store
+worker/.wrangler/
+worker/node_modules/
+worker/.dev.vars

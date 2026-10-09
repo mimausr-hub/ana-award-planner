@@ -1,0 +1,29 @@
+# seats.aero 中継 Worker（Cloudflare Workers）
+
+GitHub Pages に置いたサイトから seats.aero の API を使うための中継です。seats.aero はブラウザからの直接呼び出し（CORS）を許可していないため、サーバー側で API キーを付けて中継する必要があります。ローカルの `serve.py` と同じ役割を、無料の Cloudflare Workers で常時動かします。
+
+## 初回だけ（5 分）
+1. Cloudflare のアカウントを作る（無料）: https://dash.cloudflare.com/sign-up
+2. このフォルダで次を実行（Node.js が必要。`npx` で wrangler を都度実行する）
+   ```bash
+   cd worker
+   npx wrangler login                      # ブラウザが開くので Cloudflare にログイン
+   npx wrangler secret put SEATS_AERO_KEY  # seats.aero Pro の API キーを貼り付け
+   npx wrangler secret put PROXY_TOKEN     # 好きな合言葉（サイトの設定タブに同じものを入れる）
+   npx wrangler deploy                     # https://ana-award-proxy.<あなたのsubdomain>.workers.dev が表示される
+   ```
+3. `wrangler.toml` の `ALLOWED_ORIGINS` に GitHub Pages の URL（`https://<ユーザー名>.github.io`）が入っているか確認。違う場合は書き換えて `npx wrangler deploy` し直す
+4. サイトの「設定」タブ → 「中継サーバー（Cloudflare Worker）」に、表示された URL と合言葉を入れる
+
+以降はサイトを開くだけで検索できます。ローカルの `python3 serve.py` は不要です。
+
+## 他の人に使ってもらうとき
+- **その人が自分の seats.aero Pro（月 9.99 ドル）に入る**のが本筋。サイトの設定（フッターの「設定」リンク）で「自分の seats.aero API キー」を入れれば、Worker はそのキーで中継するだけになり、その人の契約・その人の 1 日 1,000 回で動く。合言葉は不要
+- 自分の枠を貸す場合だけ合言葉を渡す。`PROXY_TOKEN` はカンマ区切りで複数登録できるので、人ごとに別の合言葉を発行し、やめるときはその 1 つを外して `wrangler secret put PROXY_TOKEN` で登録し直す
+- seats.aero Pro のキーは本人の非商用利用が条件。合言葉を広く配るのは避ける
+
+## 仕組み
+- API キーは Worker の secret に置き、サイト側（公開リポジトリ・ブラウザ）には置かない
+- 許可した Origin にだけ CORS を返す。合言葉が一致しない呼び出しは 401
+- seats.aero の残回数ヘッダーはそのまま返すので、サイトの「本日の残り」表示も動く
+- 無料枠は 1 日 10 万リクエスト。seats.aero の 1 日 1,000 回より十分大きい

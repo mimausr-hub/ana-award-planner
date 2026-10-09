@@ -1,0 +1,437 @@
+// ANA特典航空券プランナー データ定義
+// 数値の出所: src = 'video'（お得トラベルchの動画で実際に表示された値）/ 'est'（推定・要確認）
+// 編集は「設定」タブのJSONエディタから（localStorageに保存され、この既定値を上書きします）
+window.AWARD_DATA = {
+  version: "2026-10-10",
+  // 既定の中継サーバー（Cloudflare Worker）。GitHub Pages で開いたときはここへ問い合わせる
+  defaultProxyUrl: "https://ana-award-proxy.anamile.workers.dev",
+
+  zones: {
+    1: { name: "日本", short: "日本" },
+    2: { name: "韓国・ロシア極東", short: "韓国" },
+    3: { name: "中国・香港・台湾・マカオ・フィリピン・グアム", short: "東アジア" },
+    4: { name: "東南アジア・インド・スリランカ", short: "東南アジア" },
+    5: { name: "ハワイ", short: "ハワイ" },
+    6: { name: "北米（米国本土・カナダ・メキシコ）", short: "北米" },
+    7: { name: "欧州・ロシア", short: "欧州" },
+    8: { name: "中東・アフリカ", short: "中東・アフリカ" },
+    9: { name: "中南米", short: "中南米" },
+    10: { name: "オセアニア", short: "オセアニア" }
+  },
+
+  // 目的地判定用の「遠さ」（必要マイルの多い順）。同一マイル数ならシステム判定が揺れるので注意表示
+  zoneRank: { 1: 0, 2: 18000, 3: 23000, 4: 38000, 5: 40000, 10: 50000, 6: 55000, 7: 62000, 8: 100000, 9: 115000 },
+
+  // 提携航空会社特典（スターアライアンス便等を1便でも含む旅程）往復必要マイル。通年固定
+  // 出典: ANA 公式「提携航空会社特典航空券 ゾーン・必要マイルチャート」日本（Zone 1-B）発着・改定後（2024年4月18日以降の発券分）
+  // Zone 1-B = 海外で乗り継ぐ旅程（このサイトのハブ経由ルートはすべてこれ）。国際線往復 2 区間だけの旅程は Zone 1-A で少し安い（例: 欧州 C 115,000、北米 C 110,000）
+  partnerChart: {
+    2:  { Y: 18000,  PY: null, C: 33000,  F: 54000,  src: { Y: "ana", C: "ana", F: "ana" } },
+    3:  { Y: 23000,  PY: null, C: 43000,  F: 69000,  src: { Y: "ana", C: "ana", F: "ana" } },
+    4:  { Y: 38000,  PY: null, C: 63000,  F: 114000, src: { Y: "ana", C: "ana", F: "ana" } },
+    5:  null, // ハワイは提携便を組み込めない（ANA便チャートのみ）
+    6:  { Y: 55000,  PY: null, C: 117000, F: 187000, src: { Y: "ana", C: "ana", F: "ana" } },
+    7:  { Y: 62000,  PY: null, C: 121000, F: 207000, src: { Y: "ana", C: "ana", F: "ana" } },
+    8:  { Y: 100000, PY: null, C: 185000, F: 290000, src: { Y: "ana", C: "ana", F: "ana" } },
+    9:  { Y: 115000, PY: null, C: 195000, F: 327000, src: { Y: "ana", C: "ana", F: "ana" } },
+    10: { Y: 50000,  PY: null, C: 91000,  F: 150000, src: { Y: "ana", C: "ana", F: "ana" } }
+  },
+  // 都市別の上書き（ゾーン内で異なる場合）
+  partnerCityOverride: {
+    TPE: { Y: 20000, src: "video" },
+    KHH: { Y: 20000, src: "video" }
+  },
+
+  // ANA便のみの旅程: シーズン別 [L, R, H] 往復必要マイル
+  anaChart: {
+    2:  { Y: [12000, 15000, 18000], C: null,                    src: { Y: "est" } },
+    3:  { Y: [17000, 20000, 23000], C: [35000, 40000, 43000],   src: { Y: "est", C: "est" } },
+    4:  { Y: [30000, 35000, 38000], C: [null, 85000, 95000],    src: { Y: "video", C: "video" } },
+    5:  { Y: null, C: null, src: {} },
+    6:  { Y: null, C: [null, null, 165000],                    src: { C: "video" } },
+    7:  { Y: [55000, null, 78000],  C: [null, null, 180000],    src: { Y: "video", C: "video" } },
+    8:  { Y: null, C: null, src: {} },
+    9:  null, // ANA 便の中南米路線なし（メキシコシティはゾーン 6）
+    10: { Y: null, C: [null, null, 135000],                    src: { C: "video" } }
+  },
+
+  // ANA直行ビジネスのマイル数を下げる定石（ゾーン別）
+  savingTips: {
+    2: "韓国は元々少ないマイル数。むしろ国内線（沖縄等）の予約にソウル往復を足す方向で得をする。",
+    3: "復路に福岡や台北（エバー）を乗継で挟むと提携チャート（通年固定）になる。",
+    4: "復路の後に数ヶ月後の「台北→関空（エバー）」を1便追加。SIN 24時間以内乗継を挟むと総額も下がる。",
+    5: "ハワイは例外。スターアライアンス便を足せないので直行便チャートのまま。ハワイのエコノミーは意外に空席が多い。",
+    6: "LA↔SFO など米国内をユナイテッドで経由する（追加約870円）。北米旅程ではアジアに寄れない。",
+    7: "復路の後に数ヶ月後の「台北→大阪（エバー）」を1便追加。欧州2回目旅行（フランクフルト経由）も可。",
+    8: "中東・アフリカは動画に実例なし。提携チャートの値をANA公式で確認してから使う。",
+    9: "中南米は ANA 便が無いので提携チャート一択。北米（ユナイテッド・エアカナダ）か欧州（ルフトハンザ・スイス・ターキッシュ）のハブ経由で、乗継の長距離 2 区間とも同じ会社にすると取りやすい。",
+    10: "バンコク経由（19.5時間滞在）→上海経由大阪などスターアライアンス便を挟む。"
+  },
+
+  carriers: {
+    NH: { name: "ANA", star: true, fuel: "yes" },
+    BR: { name: "エバー航空", star: true, fuel: "yes", jp: ["TYO", "OSA", "NGO", "FUK", "CTS", "SDJ", "KMQ", "OKA", "HKD"], hubs: ["TPE", "KHH"],
+          note: "地方9都市から台北へ。那覇・小松発が最も空席が出やすい。ビジネスも出る" },
+    SQ: { name: "シンガポール航空", star: true, fuel: "no", jp: ["TYO", "NGO", "OSA", "FUK"], hubs: ["SIN"], noJpBiz: true,
+          note: "355〜325日前に解放。エコノミーは大量。日本発着のビジネスは特典枠なし。検索時は経由地SINを必ず入れる" },
+    VN: { name: "ベトナム航空", star: false, fuel: "no", exclusive: true, jp: ["TYO", "OSA", "NGO", "FUK"], hubs: ["HAN", "SGN", "DAD"], noUS: true,
+          note: "ベトナム航空縛り（他社便・ANA国内線と混在不可）。日本発ビジネスが平日4席。取りやすさ ハノイ＞ホーチミン＞ダナン。A321機材は避ける" },
+    UA: { name: "ユナイテッド航空", star: true, fuel: "jp-only", note: "日本発着以外は燃油0円。アジア域内や米国内のつなぎに" },
+    TG: { name: "タイ国際航空", star: true, fuel: "yes", hubs: ["BKK"] },
+    OZ: { name: "アシアナ航空", star: true, fuel: "yes", hubs: ["SEL"], note: "2026年度以降、大韓航空統合でANAマイルでの予約不可の見込み" },
+    CA: { name: "中国国際航空", star: true, fuel: "yes" },
+    LH: { name: "ルフトハンザ", star: true, fuel: "yes", note: "燃油が高い" },
+    LX: { name: "スイス", star: true, fuel: "yes" },
+    OS: { name: "オーストリア航空", star: true, fuel: "yes" },
+    TK: { name: "ターキッシュ", star: true, fuel: "yes" },
+    ET: { name: "エチオピア航空", star: true, fuel: "no", note: "アディスアベバ経由でアフリカ各地へ。バンコク・香港・ソウルから乗り継げる" },
+    MS: { name: "エジプト航空", star: true, fuel: "yes" }, AV: { name: "アビアンカ", star: true, fuel: "no" }, CM: { name: "コパ航空", star: true, fuel: "no", note: "パナマ経由で中南米各地へ。燃油 0" },
+    SN: { name: "ブリュッセル航空", star: true, fuel: "yes" }, TP: { name: "TAPポルトガル", star: true, fuel: "yes" }, LO: { name: "LOTポーランド", star: true, fuel: "yes" }, A3: { name: "エーゲ航空", star: true, fuel: "yes" },
+    AC: { name: "エアカナダ", star: true, fuel: "yes" },
+    NZ: { name: "ニュージーランド航空", star: true, fuel: "no" },
+    XX: { name: "その他スターアライアンス", star: true, fuel: "yes" }
+  },
+
+  // 都市コード → 空港コード（seats.aero は空港コードで検索する）。未記載は都市コード＝空港コード
+  airports: {
+    TYO: ["HND", "NRT"], OSA: ["KIX", "ITM"], SEL: ["ICN", "GMP"], LON: ["LHR", "LGW"], PAR: ["CDG", "ORY"], NYC: ["JFK", "EWR"],
+    MIL: ["MXP", "LIN"], ROM: ["FCO"], STO: ["ARN"], MOW: ["SVO", "DME"], BJS: ["PEK", "PKX"], SHA: ["PVG", "SHA"], IST: ["IST", "SAW"]
+  },
+  // seats.aero の source（マイレージプログラム）。スタアラの空席は united / aeroplan / lifemiles、ベトナム航空は flyingblue / delta に出る
+  seatsSources: { star: "united,aeroplan,lifemiles", vn: "flyingblue,delta,virginatlantic,etihad",
+    // ワンワールド各社の空席が出るプログラム（参考表示用。ANAマイルでは予約不可）
+    ow: "american,alaska,qantas,british,finnair,asiamiles,jal,qatar" },
+
+  // ANA 便の燃油特別付加運賃（日本発・1区間あたり・円）。ANA 公式が 2 ヶ月ごとに改定するので、設定タブの JSON で更新できる
+  // 出典: https://www.ana.co.jp/ja/jp/guide/plan/charge/fuelsurcharge/
+  anaFuel: {
+    asOf: "2026年9〜10月発券分",
+    perSector: { 2: 6500, 3: 14300, 4: 27300, 5: 35800, 6: 55000, 7: 55000, 8: 55000, 9: 55000, 10: 55000 },
+    // ゾーン内で額が違う都市（ベトナム・フィリピン・グアム 19,300 / インド・インドネシア 35,800）
+    cityOverride: { HAN: 19300, SGN: 19300, DAD: 19300, CXR: 19300, PQC: 19300, HPH: 19300, MNL: 19300, CEB: 19300, GUM: 19300, DEL: 35800, BOM: 35800, MAA: 35800, BLR: 35800, CGK: 35800, DPS: 35800 }
+  },
+  // 提携各社の燃油の目安（ANA 特典で予約したときの税・燃油。公開情報の実例ベース、2026年8〜9月時点）
+  fuelRef: {
+    SQ: "運賃に内包", NZ: "", ET: "約800円（実例）", AV: "税のみ（実例）", CM: "コパ自体が燃油を設定していない（ANA 特典での実例は未確認）", LO: "約9,500円（往復実例）・1万円以下",
+    TG: "往復の税・燃油 約5.2万円（バンコク実例）", BR: "往復 約3.7万円（台北実例・ANAとほぼ同額）",
+    UA: "日本発着は ANA 並み（LA往復 約12.7万円）。米国内・アジア域内は0円",
+    LH: "高め。ANA 便以上になることが多い", LX: "高め（LH 系）", OS: "高め（LH 系）",
+    TK: "LH より安いことが多い"
+  },
+
+  // JAL マイル（参考: ワンワールド表の「マイル」列）。出典: JAL マイレージバンク 2026年4月16日更新
+  //  jalRoute: JAL 便 基本マイル（日本発・片道）。F はシーズン [L,R,H]。PLUS（空席連動）だと増える
+  //  partnerBands: JMB提携航空会社特典（1社のみ）総旅程距離（マイル）→ 必要マイル。oneworldBands: ワンワールド特典（2社以上）
+  jalChart: {
+    asOf: "2026年4月16日更新",
+    jalRoute: {
+      SEL: { Y: 7500, J: 18000 }, BJS: { Y: 10000, J: 24000 }, SHA: { Y: 10000, PY: 15000, J: 24000, F: [36000, 43000, 50000] },
+      CAN: { Y: 10000, J: 24000 }, DLC: { Y: 10000, J: 24000 }, HKG: { Y: 11000, PY: 16000, J: 26000, F: [36000, 43000, 50000] },
+      TPE: { Y: 9000, J: 24000, note: "羽田発は +2,000" }, MNL: { Y: 10000, PY: 15000, J: 24000 }, GUM: { Y: 10000, J: 23000 },
+      BKK: { Y: 12500, PY: 20000, J: 37500, F: [67500, 75000, 82500], note: "東京発は Y13,500/J40,000" }, SIN: { Y: 13000, PY: 25000, J: 40000, F: [67500, 75000, 82500] },
+      KUL: { Y: 15000, PY: 25000, J: 40000 }, CGK: { Y: 15000, PY: 25000, J: 40000 }, HAN: { Y: 13000, PY: 20000, J: 30000 }, SGN: { Y: 13000, PY: 20000, J: 30000 },
+      DEL: { Y: 17500, PY: 25000, J: 40000 }, BLR: { Y: 17500, PY: 25000, J: 40000 },
+      HNL: { Y: 20000, PY: 30000, J: 43000, F: [90000, 100000, 110000] }, SYD: { Y: 23000, PY: 31000, J: 45000, F: [90000, 97500, 105000] }, MEL: { Y: 25000, PY: 35000, J: 45000 },
+      DOH: { Y: 20000, PY: 30000, J: 50000, F: [70000, 80000, 90000] },
+      LON: { Y: 27000, PY: 40000, J: 57000, F: [110000, 125000, 140000] }, PAR: { Y: 27000, PY: 40000, J: 57000, F: [110000, 125000, 140000] },
+      FRA: { Y: 23000, PY: 38000, J: 55000 }, HEL: { Y: 23000, PY: 38000, J: 55000, F: [110000, 125000, 140000] },
+      NYC: { Y: 27000, PY: 40000, J: 55000, F: [110000, 125000, 140000] }, BOS: { Y: 27000, PY: 40000, J: 55000 }, ORD: { Y: 27000, PY: 40000, J: 55000, F: [110000, 125000, 140000] },
+      DFW: { Y: 27000, PY: 40000, J: 55000, F: [110000, 125000, 140000] }, SFO: { Y: 27000, PY: 40000, J: 55000, F: [110000, 125000, 140000] }, LAX: { Y: 27000, PY: 40000, J: 55000, F: [110000, 125000, 140000] },
+      SAN: { Y: 27000, PY: 40000, J: 55000 }, SEA: { Y: 27000, PY: 40000, J: 55000, F: [110000, 125000, 140000] }, YVR: { Y: 27000, PY: 40000, J: 55000, F: [110000, 125000, 140000] }
+    },
+    partnerBands: [
+      [1000, { Y: 12000, PY: 17000, J: 24000, F: 36000 }], [2000, { Y: 15000, PY: 21000, J: 30000, F: 45000 }], [4000, { Y: 23000, PY: 30000, J: 42000, F: 65000 }],
+      [6000, { Y: 37000, PY: 46000, J: 60000, F: 90000 }], [8000, { Y: 45000, PY: 59000, J: 80000, F: 120000 }], [10000, { Y: 47000, PY: 62000, J: 85000, F: 135000 }],
+      [12000, { Y: 50000, PY: 70000, J: 100000, F: 145000 }], [14000, { Y: 55000, PY: 77000, J: 110000, F: 165000 }], [20000, { Y: 70000, PY: 94000, J: 130000, F: 190000 }],
+      [25000, { Y: 90000, PY: 112000, J: 145000, F: 220000 }], [29000, { Y: 110000, PY: 135000, J: 160000, F: 250000 }], [34000, { Y: 130000, PY: 160000, J: 190000, F: 290000 }],
+      [50000, { Y: 150000, PY: 180000, J: 210000, F: 330000 }]
+    ],
+    oneworldBands: [
+      [4000, { Y: 25000, J: 48000, F: 72000 }], [8000, { Y: 40000, J: 80000, F: 100000 }], [10000, { Y: 50000, J: 85000, F: 110000 }], [12000, { Y: 60000, J: 110000, F: 160000 }],
+      [14000, { Y: 70000, J: 115000, F: 165000 }], [20000, { Y: 90000, J: 120000, F: 170000 }], [25000, { Y: 120000, J: 150000, F: 230000 }], [29000, { Y: 140000, J: 190000, F: 280000 }],
+      [34000, { Y: 150000, J: 200000, F: 300000 }], [50000, { Y: 160000, J: 220000, F: 330000 }]
+    ]
+  },
+
+  // 参考: seats.aero の JAL 在庫（source=jal）が追跡対象としている区間（2026-10 時点・120 区間。ほぼ JAL 運航便のみ）。ただし 2026-10 時点で実データは 0 件（PLUS で常時「空席あり」になるためと思われる）。判定には使っていない
+  jalTracked: ["BKK-HND", "BKK-KIX", "BKK-NRT", "BLR-NRT", "BNE-NRT", "BOS-NRT", "CAN-HND", "CDG-HND", "CGK-NRT", "DEL-HND", "DEL-NRT", "DFW-HND", "DFW-NRT", "DLC-HND", "DOH-HND", "DOH-NRT", "FRA-NRT", "FUK-HKG", "GMP-HND", "GUM-NRT", "HAN-NRT", "HEL-HND", "HKG-FUK", "HKG-HND", "HKG-KIX", "HKG-NGO", "HKG-NRT", "HND-BKK", "HND-CAN", "HND-CDG", "HND-DEL", "HND-DFW", "HND-DLC", "HND-DOH", "HND-GMP", "HND-HEL", "HND-HKG", "HND-HNL", "HND-JFK", "HND-LAX", "HND-LHR", "HND-MNL", "HND-ORD", "HND-PEK", "HND-PVG", "HND-SFO", "HND-SGN", "HND-SHA", "HND-SIN", "HND-SYD", "HND-TSA", "HNL-HND", "HNL-KIX", "HNL-NGO", "HNL-NRT", "JFK-HND", "KIX-BKK", "KIX-HKG", "KIX-HNL", "KIX-LAX", "KIX-PVG", "KUL-NRT", "LAX-HND", "LAX-KIX", "LAX-NRT", "LHR-HND", "MEL-NRT", "MNL-HND", "MNL-NRT", "NGO-HKG", "NGO-HNL", "NGO-TPE", "NGO-TSN", "NRT-BKK", "NRT-BLR", "NRT-BNE", "NRT-BOS", "NRT-CGK", "NRT-DEL", "NRT-DFW", "NRT-DOH", "NRT-FRA", "NRT-GUM", "NRT-HAN", "NRT-HKG", "NRT-HNL", "NRT-KUL", "NRT-LAX", "NRT-MEL", "NRT-MNL", "NRT-ORD", "NRT-PVG", "NRT-SAN", "NRT-SEA", "NRT-SFO", "NRT-SGN", "NRT-SIN", "NRT-TPE", "NRT-YVR", "ORD-HND", "ORD-NRT", "PEK-HND", "PVG-HND", "PVG-KIX", "PVG-NRT", "SAN-NRT", "SEA-NRT", "SFO-HND", "SFO-NRT", "SGN-HND", "SGN-NRT", "SHA-HND", "SIN-HND", "SIN-NRT", "SYD-HND", "TPE-NGO", "TPE-NRT", "TSA-HND", "TSN-NGO", "YVR-NRT"],
+
+  // ANA国際線特典のシーズン区分（月日の範囲。年度ごとに数日ずれるのでANA公式カレンダーで確認。設定タブで編集可）
+  // L=ローシーズン, H=ハイシーズン, それ以外はR=レギュラー
+  anaSeasons: {
+    L: [["01-07", "02-29"], ["04-01", "04-26"], ["12-01", "12-24"]],
+    H: [["03-14", "03-31"], ["04-27", "05-06"], ["07-18", "08-23"], ["12-25", "01-06"]]
+  },
+
+  // 日本発の国際線直行便（主要路線）。NH=ANA。他社はスターアライアンス（VNはANA個別提携）
+  directs: {
+    NH: {
+      TYO: ["LON", "PAR", "FRA", "MUC", "DUS", "BRU", "VIE", "STO", "MIL", "IST", "NYC", "ORD", "IAD", "IAH", "LAX", "SFO", "SJC", "SEA", "YVR", "MEX", "HNL", "SYD", "PER",
+            "SIN", "BKK", "KUL", "CGK", "MNL", "SGN", "HAN", "DEL", "BOM", "MAA", "SEL", "SHA", "BJS", "CAN", "SZX", "HKG", "TPE", "TAO", "DLC"],
+      OSA: ["SHA", "BJS", "HKG"]
+    },
+    LH: { TYO: ["FRA", "MUC"] }, LX: { TYO: ["ZRH"] }, OS: { TYO: ["VIE"] }, TK: { TYO: ["IST"] },
+    TG: { TYO: ["BKK"], OSA: ["BKK"], NGO: ["BKK"], FUK: ["BKK"], CTS: ["BKK"], SDJ: ["BKK"] },
+    OZ: { TYO: ["SEL"], OSA: ["SEL"], NGO: ["SEL"], FUK: ["SEL"], CTS: ["SEL"], SDJ: ["SEL"], HIJ: ["SEL"], OKA: ["SEL"] },
+    CA: { TYO: ["BJS", "SHA"], OSA: ["BJS", "SHA"], NGO: ["BJS", "SHA"], FUK: ["BJS", "SHA"] },
+    UA: { TYO: ["SFO", "LAX", "NYC", "ORD", "IAD", "IAH", "DEN", "GUM"], OSA: ["SFO"], NGO: ["GUM"] },
+    AC: { TYO: ["YVR", "YYZ"] }, NZ: { TYO: ["AKL"] }
+    // BR / SQ / VN は networks.fromJapan から自動生成
+  },
+
+  // 空席が出やすい航空会社の路線網（主要路線。季節運航・新規就航は含まない。予約前にANA検索画面の便表示で確認）
+  networks: {
+    BR: {
+      title: "エバー航空（BR）— 台北経由",
+      fromJapan: [
+        ["TYO", "TPE", "成田→桃園（TPE）、羽田→松山（TSA）。羽田便は市内寄りの松山空港着"],
+        ["OSA", "TPE", "関西→桃園"], ["NGO", "TPE", "中部→桃園"], ["FUK", "TPE", ""], ["CTS", "TPE", "新千歳"],
+        ["SDJ", "TPE", ""], ["KMQ", "TPE", "動画で「最も空席が出やすい」"], ["OKA", "TPE", "動画で「最も空席が出やすい」"],
+        ["HKD", "TPE", ""], ["MYJ", "TPE", "松山（愛媛）"], ["AOJ", "TPE", "青森"]
+      ],
+      onward: {
+        "欧州": ["LON", "PAR", "AMS", "VIE", "MIL", "MUC"],
+        "東南アジア": ["BKK", "SIN", "KUL", "CGK", "DPS", "MNL", "CEB", "SGN", "HAN", "DAD", "PNH", "REP", "RGN"],
+        "東アジア": ["HKG", "MFM", "SHA", "BJS", "CAN", "SZX", "SEL", "PUS"],
+        "オセアニア": ["BNE"],
+        "北米（ANAマイルでは台北経由で北米へ行けない）": ["LAX", "SFO", "SEA", "NYC", "ORD", "IAH", "YVR"]
+      },
+      notes: [
+        "欧州ビジネスの節約技（パリ往復＋後日 台北→大阪）の「おまけ便」はこの会社。ロイヤルローレル（ビジネス）は評判が良い",
+        "台北発の欧州・東南アジア行きはビジネスの空席も出る。日本発着は地方都市ほど出やすい"
+      ]
+    },
+    SQ: {
+      title: "シンガポール航空（SQ）— シンガポール経由",
+      fromJapan: [
+        ["TYO", "SIN", "成田・羽田。成田発ロサンゼルス行き（SQ11/12）もある"],
+        ["NGO", "SIN", ""], ["OSA", "SIN", "関西。1日3便"], ["FUK", "SIN", ""]
+      ],
+      onward: {
+        "欧州（カンガルールート）": ["LON", "PAR", "FRA", "MUC", "AMS", "ZRH", "MIL", "ROM", "BCN", "MAN", "CPH", "IST", "BRU"],
+        "オセアニア": ["SYD", "MEL", "BNE", "PER", "ADL", "CNS", "DRW", "AKL", "CHC"],
+        "東南アジア（ゾーン4内は同マイル）": ["BKK", "HKT", "KUL", "PEN", "CGK", "DPS", "SUB", "MNL", "CEB", "SGN", "HAN", "DAD", "PNH", "REP", "RGN"],
+        "南アジア": ["MLE", "CMB", "DEL", "BOM", "MAA", "BLR", "HYD", "KTM", "DAC"],
+        "東アジア": ["HKG", "TPE", "SEL", "SHA", "BJS", "CAN"],
+        "中東・アフリカ": ["DXB", "JNB", "CPT"],
+        "北米（ANAマイルではアジア経由不可）": ["NYC", "EWR", "LAX", "SFO", "SEA"]
+      },
+      notes: [
+        "日本発着便のビジネスは特典枠がほぼ出ない。日本〜SINはエコノミー前提。SIN発の東南アジア各都市はビジネスも普通に出る",
+        "SIN発バルセロナ行きはミラノ経由。ミラノで降りる旅程も燃油0円のまま組める",
+        "SINで24時間以内の乗継なら空港税が約1/3。無料バスツアーも使える",
+        "ANAの検索では経由地にSINを入力しないとSQ便が出ず、ルフトハンザや中国国際航空ばかり表示される"
+      ]
+    },
+    VN: {
+      title: "ベトナム航空（VN）— ハノイ／ホーチミン経由（ベトナム航空縛り）",
+      fromJapan: [
+        ["TYO", "HAN", "成田・羽田"], ["TYO", "SGN", "成田・羽田"],
+        ["TYO", "DAD", "成田のみ。VN316/317はANAコードシェア外のため上級会員優遇なし・ラウンジ不可"],
+        ["OSA", "HAN", "関西。2026年12月から1日2便"], ["OSA", "SGN", "関西"], ["OSA", "DAD", "関西"],
+        ["NGO", "HAN", ""], ["NGO", "SGN", ""], ["FUK", "HAN", ""], ["FUK", "SGN", ""]
+      ],
+      onward: {
+        "欧州": ["PAR", "FRA", "LON", "MUC", "MIL"],
+        "オセアニア": ["SYD", "MEL", "PER"],
+        "東南アジア": ["BKK", "SIN", "KUL", "CGK", "MNL", "REP", "PNH", "VTE", "RGN"],
+        "東アジア": ["HKG", "TPE", "KHH", "SEL", "PUS", "SHA", "BJS", "CAN"],
+        "インド": ["DEL", "BOM"],
+        "ベトナム国内（国内線もビジネス追加約700円）": ["DAD", "CXR", "PQC", "HUI", "DLI", "HPH"],
+        "北米（ANAマイルでは利用不可）": ["SFO"]
+      },
+      notes: [
+        "日本発着の取りやすさは ハノイ ＞ ホーチミン ＞ ダナン。ベトナム経由でどこかへ行くならまずハノイを狙う",
+        "ベトナム航空を1便でも使うと全便ベトナム航空のみ。ANA国内線も他社便も混ぜられない。日本側は東京・大阪・名古屋・福岡から",
+        "ビジネス利用者は入出国審査のファストパス（優先レーン）が使える。出国時のチケットチェックや手荷物検査も優先"
+      ],
+      aircraft: {
+        title: "なぜ A321 機材は避けるのか",
+        body: [
+          "ベトナム航空のビジネスクラスは機材で中身が別物です。787-9 と A350-900 は 1-2-1 配列のフルフラット（完全に横になれる）シートで、全席通路に直接出られます。A321／A321neo は 2-2 配列のリクライニングシート（いわゆる幅広シート）で、横にはなれず、窓側席は通路に出るとき隣をまたぎます。個人モニターが無い機体もあります。",
+          "必要マイル数はどちらでも同じです。同じ 63,000 マイル（東南アジア・ビジネス）を払って、日本〜ベトナムの5〜6時間をリクライニングで過ごすか、フルフラットで過ごすかの違いになるので、空席が複数あるなら機材で選びます。",
+          "A321 が入りやすいのは、成田・関西〜ダナン、名古屋・福岡発、季節や曜日で機材変更された便、そしてベトナム国内線です。ANA の検索結果には機材が表示されるので、便を選ぶ前に「787」「359（A350）」か「321」かを確認してください。例外はハノイ〜ホーチミン国内線で、ここは国際線用のワイドボディ機が多く、2時間強でもフルフラットに乗れます。"
+        ]
+      }
+    },
+    UA: {
+      title: "ユナイテッド航空（UA）— つなぎ用（日本発着以外は燃油0円）",
+      fromJapan: [
+        ["TYO", "米国本土", "成田・羽田 → SFO／LAX／EWR／ORD／IAD／IAH／DEN"],
+        ["TYO", "GUM", "成田"], ["OSA", "SFO", "関西"], ["NGO", "GUM", "中部"]
+      ],
+      onward: {
+        "米国内（北米ビジネス節約技の経由に。追加約870円）": ["LAX", "SFO", "SEA", "LAS", "DEN", "ORD", "NYC", "IAD", "IAH", "BOS"],
+        "グアム発（ミクロネシア路線）": ["SPN", "ROR", "MNL"]
+      },
+      notes: [
+        "北米路線の必要マイルを下げる技は、LA↔SFO など米国内をUAで経由する形。北米旅程ではアジアに寄れない",
+        "UA自身のマイル（マイレージプラス）はANA国内線の予約に有利。これは別口座の話で、ANAマイルの旅程とは混ぜない"
+      ]
+    }
+  },
+  // cities に無いコードの表示名
+  extraNames: { AOJ: "青森", TSA: "台北・松山", ADL: "アデレード", CNS: "ケアンズ", DRW: "ダーウィン", SUB: "スラバヤ", HYD: "ハイデラバード", CPT: "ケープタウン", EWR: "ニューヨーク（ニューアーク）", HUI: "フエ", DLI: "ダラット", SPN: "サイパン", ROR: "パラオ" },
+
+  // 空席つきルート探索（seats.aero API）で当たる航空会社とハブ。zones=この航空会社で行ける目的地ゾーン
+  liveCarriers: [
+    { c: "NH", hubs: [], jp: ["HND", "NRT"], zones: [2, 3, 4, 5, 6, 7, 8, 10] },
+    { c: "VN", hubs: ["HAN", "SGN"], jp: ["HND", "NRT", "KIX", "NGO", "FUK"], zones: [3, 4, 7, 10], sources: "vn" },
+    { c: "BR", hubs: ["TPE"], jp: ["HND", "NRT", "KIX", "NGO", "FUK", "CTS", "SDJ", "KMQ", "OKA", "HKD", "MYJ", "AOJ"], zones: [3, 4, 7, 10] },
+    { c: "SQ", hubs: ["SIN"], jp: ["HND", "NRT", "NGO", "KIX", "FUK"], zones: [4, 7, 8, 10] },
+    { c: "TG", hubs: ["BKK"], jp: ["HND", "NRT", "KIX", "NGO", "FUK", "CTS", "SDJ"], zones: [4, 7, 10] },
+    { c: "OZ", hubs: ["ICN"], jp: ["HND", "NRT", "KIX", "NGO", "FUK", "CTS", "SDJ", "HIJ", "OKA"], zones: [3, 4, 7] },
+    { c: "CA", hubs: ["PEK", "PVG"], jp: ["HND", "NRT", "KIX", "NGO", "FUK"], zones: [3, 4, 7] },
+    { c: "LH", hubs: ["FRA", "MUC"], jp: ["HND", "NRT", "KIX"], zones: [7, 8, 9] },
+    { c: "SN", hubs: ["BRU"], jp: [], zones: [7, 8] },
+    { c: "TP", hubs: ["LIS"], jp: [], zones: [7, 9] },
+    { c: "LO", hubs: ["WAW"], jp: [], zones: [7] },
+    { c: "A3", hubs: ["ATH"], jp: [], zones: [7] },
+    { c: "LX", hubs: ["ZRH"], jp: ["NRT"], zones: [7, 8, 9] },
+    { c: "OS", hubs: ["VIE"], jp: ["HND"], zones: [7, 8] },
+    { c: "ET", hubs: ["ADD"], jp: [], zones: [8] },
+    { c: "MS", hubs: ["CAI"], jp: ["NRT"], zones: [8] },
+    { c: "TK", hubs: ["IST"], jp: ["HND", "NRT", "KIX"], zones: [7, 8, 9] },
+    { c: "AC", hubs: ["YVR", "YYZ"], jp: ["HND", "NRT"], zones: [6, 9] },
+    { c: "UA", hubs: ["IAH", "EWR", "ORD", "IAD", "SFO", "LAX", "DEN"], jp: ["HND", "NRT", "KIX"], zones: [9] },
+    { c: "CM", hubs: ["PTY"], jp: [], zones: [9] },
+    { c: "AV", hubs: ["BOG"], jp: [], zones: [9] },
+    { c: "NZ", hubs: ["AKL"], jp: ["NRT"], zones: [10] }
+  ],
+  // 会社をまたぐ乗継用の「玄関ハブ」（目的地ゾーンごと）。日本からの長距離便（ANA 直行や提携各社）でここへ着き、現地の提携会社で先へ進む
+  gatewaysByZone: {
+    7: ["FRA", "MUC", "VIE", "BRU", "IST", "LHR", "CDG", "ZRH", "HEL", "MAD", "DOH"],
+    8: ["FRA", "MUC", "VIE", "BRU", "IST", "ZRH", "CAI", "ADD", "SIN", "BKK", "HKG", "ICN", "DOH", "LHR"],
+    9: ["IAH", "EWR", "ORD", "IAD", "SFO", "LAX", "DEN", "YVR", "YYZ", "MEX", "FRA", "MUC", "ZRH", "IST", "LIS", "MAD", "LHR", "DFW", "JFK", "MIA", "DOH"],
+    6: ["IAH", "EWR", "ORD", "IAD", "SFO", "LAX", "DEN", "YVR", "YYZ", "DFW", "JFK"],
+    4: ["SIN", "BKK", "KUL", "HKG", "TPE", "DEL"], 10: ["SIN", "BKK", "SYD", "AKL", "HKG"], 3: ["TPE", "HKG", "PVG", "PEK", "ICN"]
+  },
+  // 参考表示: ワンワールド各社（ANAマイルでは予約不可。JALマイル・Avios 等で予約する）。hubs が空＝直行便
+  liveCarriersOW: [
+    { c: "JL", hubs: [], jp: ["HND", "NRT"], zones: [2, 3, 4, 5, 6, 7, 10] },
+    { c: "QR", hubs: ["DOH"], jp: ["HND", "NRT", "KIX"], zones: [7, 8, 9] },
+    { c: "AY", hubs: ["HEL"], jp: ["HND", "NRT", "KIX", "NGO"], zones: [7] },
+    { c: "CX", hubs: ["HKG"], jp: ["HND", "NRT", "KIX", "NGO", "FUK", "CTS", "OKA"], zones: [3, 4, 6, 7, 10] },
+    { c: "BA", hubs: ["LHR"], jp: ["HND"], zones: [7, 8, 9] },
+    { c: "IB", hubs: ["MAD"], jp: ["NRT"], zones: [7, 9] },
+    { c: "MH", hubs: ["KUL"], jp: ["NRT", "KIX"], zones: [4, 10] },
+    { c: "QF", hubs: ["SYD", "MEL", "BNE"], jp: ["HND", "NRT"], zones: [10] },
+    { c: "AA", hubs: ["DFW", "LAX", "ORD", "JFK", "MIA"], jp: ["HND", "NRT"], zones: [6, 9] }
+  ],
+  owNames: { JL: "JAL", QR: "カタール航空", AY: "フィンエアー", CX: "キャセイパシフィック", BA: "ブリティッシュ・エアウェイズ", IB: "イベリア航空", MH: "マレーシア航空", QF: "カンタス航空", AA: "アメリカン航空", AS: "アラスカ航空", RJ: "ロイヤル・ヨルダン航空", AT: "ロイヤル・エア・モロッコ" },
+  // 加盟会社コード（会社をまたぐ乗継で「同じアライアンス内」を判定する）
+  starCodes: ["NH", "UA", "AC", "LH", "LX", "OS", "SN", "TP", "LO", "A3", "TK", "SQ", "TG", "BR", "CA", "ZH", "OZ", "NZ", "AV", "CM", "ET", "MS", "SA", "AI", "OU"],
+  owCodes: ["JL", "AA", "BA", "IB", "AY", "CX", "QR", "QF", "MH", "RJ", "AT", "AS", "FJ", "WY"],
+
+  // 空港コード → 空港名（便の表示「都市（空港名 コード）」に使う。無い空港はコードのみ）
+  airportNames: {
+    HND: "羽田", NRT: "成田", KIX: "関西", ITM: "伊丹", NGO: "中部", FUK: "福岡", CTS: "新千歳", SDJ: "仙台", KMQ: "小松", OKA: "那覇", HKD: "函館", MYJ: "松山", AOJ: "青森", HIJ: "広島", KOJ: "鹿児島", KMJ: "熊本", ISG: "石垣", MMY: "宮古", OKJ: "岡山", TAK: "高松",
+    TPE: "桃園", KHH: "高雄", SIN: "チャンギ", BKK: "スワンナプーム", HAN: "ノイバイ", SGN: "タンソンニャット", DAD: "ダナン", ICN: "仁川", GMP: "金浦", PEK: "首都", PKX: "大興", PVG: "浦東", SHA: "虹橋", HKG: "香港", KUL: "クアラルンプール",
+    FRA: "フランクフルト", MUC: "ミュンヘン", ZRH: "チューリッヒ", VIE: "ウィーン", IST: "イスタンブール", SAW: "サビハ・ギョクチェン", HEL: "ヴァンター", LHR: "ヒースロー", LGW: "ガトウィック", CDG: "シャルル・ド・ゴール", ORY: "オルリー", MXP: "マルペンサ", LIN: "リナーテ", FCO: "フィウミチーノ", ARN: "アーランダ", SVO: "シェレメーチエヴォ", DME: "ドモジェドヴォ",
+    DOH: "ハマド", DXB: "ドバイ", AUH: "アブダビ", YVR: "バンクーバー", YYZ: "ピアソン", JFK: "JFK", EWR: "ニューアーク", LAX: "ロサンゼルス", SFO: "サンフランシスコ", DFW: "ダラス・フォートワース", ORD: "オヘア", IAH: "ジョージ・ブッシュ", IAD: "ダレス", DEN: "デンバー", HNL: "ホノルル", SYD: "シドニー", MEL: "メルボルン", BNE: "ブリスベン", AKL: "オークランド",
+    ADD: "ボレ", CAI: "カイロ", JNB: "O.R.タンボ", NBO: "ジョモ・ケニヤッタ", CPT: "ケープタウン", CMN: "ムハンマド5世", BRU: "ブリュッセル", LIS: "リスボン", WAW: "ショパン", ATH: "アテネ", MAD: "バラハス", MIA: "マイアミ", MEX: "ベニート・フアレス",
+    GRU: "グアルーリョス", GIG: "ガレオン", EZE: "エセイサ", SCL: "サンティアゴ", LIM: "ホルヘ・チャベス", BOG: "エルドラド", PTY: "トクメン", UIO: "キト", SJO: "フアン・サンタマリア"
+  },
+
+  // ハブ空港 → 都市コード（cities に無い空港）
+  hubCity: { ICN: "SEL", PEK: "BJS", PVG: "SHA", HND: "TYO", NRT: "TYO", KIX: "OSA", ITM: "OSA", MXP: "MIL", LIN: "MIL", CDG: "PAR", ORY: "PAR", LHR: "LON", LGW: "LON", JFK: "NYC", EWR: "NYC", FCO: "ROM", ARN: "STO" },
+
+  // 日本側の主要発着地（ANA国内線・一般の展開に使用）
+  jpMajor: ["TYO", "OSA", "NGO", "FUK", "CTS", "OKA", "SDJ", "KMQ", "HIJ", "HKD"],
+
+  cities: [
+    // 日本 zone1
+    { code: "TYO", name: "東京（羽田/成田）", zone: 1 }, { code: "OSA", name: "大阪（関西/伊丹）", zone: 1 },
+    { code: "NGO", name: "名古屋", zone: 1 }, { code: "FUK", name: "福岡", zone: 1 }, { code: "CTS", name: "札幌", zone: 1 },
+    { code: "SDJ", name: "仙台", zone: 1 }, { code: "KMQ", name: "小松", zone: 1 }, { code: "OKA", name: "那覇", zone: 1 },
+    { code: "HKD", name: "函館", zone: 1 }, { code: "HIJ", name: "広島", zone: 1 }, { code: "KOJ", name: "鹿児島", zone: 1 },
+    { code: "KMJ", name: "熊本", zone: 1 }, { code: "ISG", name: "石垣", zone: 1 }, { code: "MMY", name: "宮古", zone: 1 },
+    { code: "OKJ", name: "岡山", zone: 1 }, { code: "TAK", name: "高松", zone: 1 }, { code: "MYJ", name: "松山", zone: 1 },
+    // 韓国 zone2
+    { code: "SEL", name: "ソウル", zone: 2 }, { code: "PUS", name: "釜山", zone: 2 }, { code: "CJU", name: "済州", zone: 2 },
+    { code: "VVO", name: "ウラジオストク", zone: 2 },
+    // 東アジア zone3
+    { code: "TPE", name: "台北", zone: 3 }, { code: "KHH", name: "高雄", zone: 3 }, { code: "HKG", name: "香港", zone: 3 },
+    { code: "MFM", name: "マカオ", zone: 3 }, { code: "SHA", name: "上海", zone: 3 }, { code: "BJS", name: "北京", zone: 3 },
+    { code: "CAN", name: "広州", zone: 3 }, { code: "SZX", name: "深セン", zone: 3 }, { code: "CTU", name: "成都", zone: 3 },
+    { code: "XMN", name: "厦門", zone: 3 }, { code: "DLC", name: "大連", zone: 3 }, { code: "TAO", name: "青島", zone: 3 },
+    { code: "MNL", name: "マニラ", zone: 3 }, { code: "CEB", name: "セブ", zone: 3 }, { code: "GUM", name: "グアム", zone: 3 },
+    // 東南アジア・インド zone4
+    { code: "SIN", name: "シンガポール", zone: 4 }, { code: "BKK", name: "バンコク", zone: 4 }, { code: "HKT", name: "プーケット", zone: 4 },
+    { code: "CNX", name: "チェンマイ", zone: 4 }, { code: "KUL", name: "クアラルンプール", zone: 4 }, { code: "PEN", name: "ペナン", zone: 4 },
+    { code: "CGK", name: "ジャカルタ", zone: 4 }, { code: "DPS", name: "バリ（デンパサール）", zone: 4 },
+    { code: "HAN", name: "ハノイ", zone: 4 }, { code: "SGN", name: "ホーチミン", zone: 4 }, { code: "DAD", name: "ダナン", zone: 4 },
+    { code: "CXR", name: "ニャチャン", zone: 4 }, { code: "PQC", name: "フーコック", zone: 4 }, { code: "HPH", name: "ハイフォン", zone: 4 },
+    { code: "RGN", name: "ヤンゴン", zone: 4 }, { code: "PNH", name: "プノンペン", zone: 4 }, { code: "REP", name: "シェムリアップ", zone: 4 },
+    { code: "VTE", name: "ビエンチャン", zone: 4 }, { code: "DEL", name: "デリー", zone: 4 }, { code: "BOM", name: "ムンバイ", zone: 4 },
+    { code: "MAA", name: "チェンナイ", zone: 4 }, { code: "BLR", name: "ベンガルール", zone: 4 }, { code: "CMB", name: "コロンボ", zone: 4 },
+    { code: "MLE", name: "マレ（モルディブ）", zone: 4 }, { code: "DAC", name: "ダッカ", zone: 4 }, { code: "KTM", name: "カトマンズ", zone: 4 },
+    // ハワイ zone5
+    { code: "HNL", name: "ホノルル", zone: 5 },
+    // 北米 zone6
+    { code: "LAX", name: "ロサンゼルス", zone: 6 }, { code: "SFO", name: "サンフランシスコ", zone: 6 }, { code: "SJC", name: "サンノゼ", zone: 6 },
+    { code: "SEA", name: "シアトル", zone: 6 }, { code: "SAN", name: "サンディエゴ", zone: 6 }, { code: "LAS", name: "ラスベガス", zone: 6 },
+    { code: "NYC", name: "ニューヨーク", zone: 6 }, { code: "ORD", name: "シカゴ", zone: 6 }, { code: "IAD", name: "ワシントンD.C.", zone: 6 },
+    { code: "IAH", name: "ヒューストン", zone: 6 }, { code: "BOS", name: "ボストン", zone: 6 }, { code: "DEN", name: "デンバー", zone: 6 },
+    { code: "YVR", name: "バンクーバー", zone: 6 }, { code: "YYZ", name: "トロント", zone: 6 }, { code: "MEX", name: "メキシコシティ", zone: 6 },
+    // 欧州 zone7
+    { code: "LON", name: "ロンドン", zone: 7 }, { code: "PAR", name: "パリ", zone: 7 }, { code: "FRA", name: "フランクフルト", zone: 7 },
+    { code: "MUC", name: "ミュンヘン", zone: 7 }, { code: "DUS", name: "デュッセルドルフ", zone: 7 }, { code: "VIE", name: "ウィーン", zone: 7 },
+    { code: "ZRH", name: "チューリッヒ", zone: 7 }, { code: "GVA", name: "ジュネーブ", zone: 7 }, { code: "BRU", name: "ブリュッセル", zone: 7 },
+    { code: "MIL", name: "ミラノ", zone: 7 }, { code: "ROM", name: "ローマ", zone: 7 }, { code: "AMS", name: "アムステルダム", zone: 7 },
+    { code: "CPH", name: "コペンハーゲン", zone: 7 }, { code: "STO", name: "ストックホルム", zone: 7 }, { code: "OSL", name: "オスロ", zone: 7 },
+    { code: "HEL", name: "ヘルシンキ", zone: 7 }, { code: "BCN", name: "バルセロナ", zone: 7 }, { code: "MAD", name: "マドリード", zone: 7 },
+    { code: "LIS", name: "リスボン", zone: 7 }, { code: "IST", name: "イスタンブール", zone: 7 }, { code: "WAW", name: "ワルシャワ", zone: 7 },
+    { code: "PRG", name: "プラハ", zone: 7 }, { code: "BUD", name: "ブダペスト", zone: 7 }, { code: "ATH", name: "アテネ", zone: 7 },
+    { code: "DUB", name: "ダブリン", zone: 7 }, { code: "MAN", name: "マンチェスター", zone: 7 }, { code: "MOW", name: "モスクワ", zone: 7 },
+    // 中東・アフリカ zone8
+    { code: "DXB", name: "ドバイ", zone: 8 }, { code: "DOH", name: "ドーハ", zone: 8 }, { code: "AUH", name: "アブダビ", zone: 8 },
+    { code: "CAI", name: "カイロ", zone: 8 }, { code: "JNB", name: "ヨハネスブルグ", zone: 8 }, { code: "ADD", name: "アディスアベバ", zone: 8 },
+    { code: "NBO", name: "ナイロビ", zone: 8 }, { code: "CPT", name: "ケープタウン", zone: 8 }, { code: "CMN", name: "カサブランカ", zone: 8 },
+    // 中南米 zone9（ANA 便なし。北米・欧州のハブ経由）
+    { code: "GRU", name: "サンパウロ", zone: 9 }, { code: "GIG", name: "リオデジャネイロ", zone: 9 }, { code: "EZE", name: "ブエノスアイレス", zone: 9 },
+    { code: "SCL", name: "サンティアゴ", zone: 9 }, { code: "LIM", name: "リマ", zone: 9 }, { code: "BOG", name: "ボゴタ", zone: 9 },
+    { code: "PTY", name: "パナマシティ", zone: 9 }, { code: "UIO", name: "キト", zone: 9 }, { code: "SJO", name: "サンホセ", zone: 9 },
+    // オセアニア zone10
+    { code: "SYD", name: "シドニー", zone: 10 }, { code: "MEL", name: "メルボルン", zone: 10 }, { code: "BNE", name: "ブリスベン", zone: 10 },
+    { code: "PER", name: "パース", zone: 10 }, { code: "AKL", name: "オークランド", zone: 10 }, { code: "CHC", name: "クライストチャーチ", zone: 10 }
+  ],
+
+  // プリセット旅程（動画で実演されたパターン）
+  presets: [
+    { id: "eu-biz", name: "欧州ビジネス節約: パリ往復＋後日 台北→大阪（エバー）", cabin: "C", season: "H",
+      origin: "TYO", out: ["", "", ""], dest: "PAR", ret: ["TYO", "TPE", ""], final: "OSA", stopover: "TYO",
+      carriers: { 0: "NH", 1: "NH", 2: "BR", 3: "BR" } },
+    { id: "sq-phuket", name: "SQ: プーケット滞在＋9ヶ月後にシンガポール往復（0マイル追加）", cabin: "Y", season: "R",
+      origin: "TYO", out: ["FUK", "SIN", ""], dest: "HKT", ret: ["SIN", "TYO", "SIN"], final: "OSA", stopover: "TYO",
+      carriers: { 0: "NH", 1: "SQ", 2: "SQ", 3: "SQ", 4: "SQ", 5: "SQ", 6: "SQ" },
+      note: "往路に福岡を挟んであるのは「東京→シンガポール」を2回飛ぶのを避けるため。2回目旅行（東京→SIN→大阪）は24時間以内で繋ぐ" },
+    { id: "vn-danang", name: "ベトナム航空: ダナン滞在＋後日 ホーチミン・ハノイ弾丸（全ビジネス）", cabin: "C", season: "R",
+      origin: "TYO", out: ["SGN", "", ""], dest: "DAD", ret: ["HAN", "TYO", "HAN"], final: "OSA", stopover: "TYO",
+      carriers: { 0: "VN", 1: "VN", 2: "VN", 3: "VN", 4: "VN", 5: "VN" },
+      note: "2回目旅行（東京→ハノイ→大阪）は24時間以内で繋ぐ。ハノイ国内線はフルフラット機材が多い" },
+    { id: "tw-local", name: "台湾: 東京→（那覇）→台北 ／ 台北→（小松）→東京", cabin: "Y", season: "R",
+      origin: "TYO", out: ["OKA", "", ""], dest: "TPE", ret: ["KMQ", "", ""], final: "TYO", stopover: "OKA",
+      carriers: { 0: "NH", 1: "BR", 2: "BR", 3: "NH" } },
+    { id: "asia8", name: "アジア8便周遊（23,000）: 上海・福岡・台北→香港→東京(3ヶ月)→マニラ・ソウル→名古屋", cabin: "Y", season: "R",
+      origin: "TYO", out: ["SHA", "FUK", "TPE"], dest: "HKG", ret: ["TYO", "MNL", "SEL"], final: "NGO", stopover: "TYO",
+      carriers: { 0: "NH", 1: "NH", 2: "BR", 3: "BR", 4: "NH", 5: "XX", 6: "OZ", 7: "OZ" } },
+    { id: "us-sfo", name: "北米ビジネス節約: LA往復をSFO経由（UA）に", cabin: "C", season: "H",
+      origin: "TYO", out: ["", "", ""], dest: "LAX", ret: ["SFO", "", ""], final: "TYO", stopover: "SFO",
+      carriers: { 0: "NH", 1: "UA", 2: "NH" } }
+  ],
+
+  tips: [
+    "「行きたい場所」より「行ける場所」。日程が固定なら、空席のある便から行き先を選ぶ。",
+    "検索は 往復（ラフ）→ 片道（下書き）→ 複数都市（清書）。複数都市画面から直接探さない。",
+    "「東京発」ではなく「日本発」。地方都市発を総当たりすると空席の確率が何倍にもなる。那覇・小松発は特に出やすい。",
+    "日本発着の空席が出やすい順: エバー航空（台北経由）→ ベトナム航空（燃油0・日本発ビジネス可）→ シンガポール航空（燃油0・エコノミー大量）。",
+    "ANA便の人気路線（ハワイ・欧州ビジネス）は355日前周辺か直前（96時間前まで）だけ。それ以外は「取れたら奇跡」と割り切る。",
+    "ANA直行ビジネスにスターアライアンス便を1便足すと通年固定チャートになり、欧州で約6万マイル下がる（ハワイは不可）。",
+    "復路の乗継枠で数ヶ月後の2回目旅行を0マイル追加で付ける。最終到着地は東京以外に。1年以内なら電話で先延ばし可。",
+    "Webで「空席あり」でも実は空席待ちのことがある。確定画面まで進んで確認する。",
+    "Webで最後にエラーでも電話で通るものがある: クラス混在、二段階空席確認の赤字エラー、同日の国際線→国内線乗継。",
+    "燃油は偶数月改定。予約後に下がったら「おまけ便の日時だけ変更」で全旅程が再計算され差額が返金される。",
+    "国内線はUA（ユナイテッド）マイルの方が有利。ANAマイルは国際線の周遊で使う。"
+  ]
+};

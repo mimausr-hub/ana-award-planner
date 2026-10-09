@@ -1,0 +1,14 @@
+{
+  "name": "ANA特典航空券プランナー",
+  "short_name": "特典プランナー",
+  "description": "ANAマイルの特典航空券を取るための旅程判定・空席検索プラン・必要マイル計算",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6fb",
+  "theme_color": "#0f766e",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

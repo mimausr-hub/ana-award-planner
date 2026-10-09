@@ -1,0 +1,24 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ana-award-planner",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "serve.py"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "ana-award-planner-mock",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "SEATS_AERO_MOCK=1",
+        "PORT=8766",
+        "python3",
+        "serve.py"
+      ],
+      "port": 8766
+    }
+  ]
+}

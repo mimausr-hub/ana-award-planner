@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>ANA特典航空券プランナー</title>
+  <meta name="description" content="ANAマイルで取れる特典航空券の空席を seats.aero のデータから探す。ANA直行便とスターアライアンス各社のハブ経由を、人数分の席がある組合せだけ表示。">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="hwrap">
+      <div class="brand">
+        <h1><img src="icon.svg" alt="" class="logo">ANA特典航空券プランナー</h1>
+        <button class="helpbtn" id="helpToggle" type="button">説明を表示</button>
+      </div>
+      <nav class="tabs" id="tabs"></nav>
+    </div>
+  </header>
+  <main id="app"></main>
+  <footer>
+    空席は seats.aero のキャッシュ（数時間前）で、ANA会員だけに開放される枠は含まれません。予約前にANA公式で必ず確認してください。<br>
+    このアプリはANAのサイトへ自動アクセスしません。
+  </footer>
+  <script src="data.js"></script>
+  <script src="holidays.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

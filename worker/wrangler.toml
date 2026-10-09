@@ -1,0 +1,15 @@
+# Cloudflare Workers の設定。seats.aero Partner API への中継（API キーはここに書かず、secret で登録する）
+name = "ana-award-proxy"
+main = "index.js"
+compatibility_date = "2026-01-01"
+workers_dev = true
+preview_urls = false
+# 公開 URL: https://ana-award-proxy.anamile.workers.dev
+
+[vars]
+# 許可する呼び出し元（カンマ区切り）。GitHub Pages の URL とローカル確認用
+ALLOWED_ORIGINS = "https://mimausr-hub.github.io,http://127.0.0.1:8765,http://localhost:8765"
+
+# secrets（コマンドで登録。コードや toml には書かない）
+#   wrangler secret put SEATS_AERO_KEY   ← seats.aero Pro の API キー
+#   wrangler secret put PROXY_TOKEN      ← サイトの設定に入れる合言葉。カンマ区切りで複数登録でき、人ごとに発行して個別に取り消せる
