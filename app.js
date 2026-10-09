@@ -174,7 +174,7 @@
   // 全区間・全社・全クラスをまとめて取得する。往路 2 区間・復路 2 区間に加え、現地ハブへ乗り継ぐ 3 区間用に「玄関→現地ハブ」を往復 1 回ずつ（最大 6 回＋ページ送り）
   async function fetchLegs(cabins, withOW, log) {
     const q = S.q; const dep = S.dates['q.dep'] || '', ret = S.dates['q.ret'] || '';
-    const w = Number(S.settings.window == null ? 3 : S.settings.window); const dz = zone(q.dest);
+    const w = Number(S.settings.window == null ? 6 : S.settings.window); const dz = zone(q.dest);
     const dAps = airportsOf(q.dest), oAps = airportsOf(q.origin), fAps = airportsOf(q.final);
     const cfgs = [...D.liveCarriers, ...(withOW ? (D.liveCarriersOW || []) : [])];
     const jpAll = uniq([...oAps, ...fAps, ...cfgs.flatMap(c => c.jp)]);
@@ -591,7 +591,7 @@
   }
   function renderLive() {
     const R = LIVE.results;
-    const w = S.settings.window == null ? 3 : S.settings.window;
+    const w = S.settings.window == null ? 6 : S.settings.window;
     let h = `<div class="card"><h2>空席を探す <span class="muted" style="font-weight:400;font-size:12px">seats.aero のデータ・便名/時刻/残席つき</span></h2>
       <p class="help muted">ANA 直行便を先に調べ、次にスターアライアンス各社とベトナム航空のハブ経由を組みます。さらに「日本→地域の玄関ハブ（ANA 直行や提携長距離便）→現地の提携会社で目的地へ」という会社をまたぐ乗継（現地ハブを挟む 3 区間を含む。海外乗継 2 回まで）も組みます。希望日の前後${esc(String(w))}日、同じハブで 1.5〜72 時間（24 時間超は★）でつながり、<b>${esc(String(paxN()))}人分の席がある</b>組合せだけを出します。往路・復路の「○ 3日」は候補のある出発日の数、「燃油」は ANA 便は公式表（1区間×往復）、他社便は有無と実例ベースの目安です。各便の「seats.aero」リンクでその日・その区間を seats.aero 上で開けます。全社・全クラスをまとめて問い合わせるので、1 回の探索で使う API は往復 4〜6 回（片道 2〜3 回。件数が多いとページ送りで増える）です。上限は 1 日 1,000 回（UTC 0 時＝日本時間 朝 9 時リセット）で、前後の日数を広げても回数は変わりません。往路か復路の日付だけ変えて再検索すると、変えていない側は前回の取得結果（6 時間以内）を再利用するので API はその側の分だけで済みます。</p>
       <div class="row chks">
@@ -746,7 +746,7 @@
       </div>
       <h3 style="margin-top:14px">探索の設定</h3>
       <div class="grid">
-        <label class="f">希望日の前後（日）<input type="number" min="0" max="14" data-k="settings.window" value="${esc(S.settings.window == null ? 3 : S.settings.window)}"></label>
+        <label class="f">希望日の前後（日）<input type="number" min="0" max="14" data-k="settings.window" value="${esc(S.settings.window == null ? 6 : S.settings.window)}"></label>
         <label class="f">中継サーバー URL（通常は変更不要。空なら既定の Worker、ローカル起動時は serve.py）<input type="text" data-k="settings.proxyUrl" value="${esc(S.settings.proxyUrl || '')}" placeholder="${esc(D.defaultProxyUrl || '')}" autocomplete="off"></label>
       </div>
       <h3 style="margin-top:14px">家族に渡す招待リンク</h3>
