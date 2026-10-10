@@ -1,5 +1,5 @@
-const CACHE = 'aap-v49';
-const ASSETS = ['./', './index.html', './style.css?v=49', './data.js?v=49', './holidays.js?v=49', './app.js?v=49', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'aap-v50';
+const ASSETS = ['./', './index.html', './style.css?v=50', './data.js?v=50', './holidays.js?v=50', './app.js?v=50', './manifest.webmanifest', './icon.svg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('aap-') && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
