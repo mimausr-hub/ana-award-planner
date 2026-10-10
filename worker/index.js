@@ -2,7 +2,7 @@
 //  - API キーを Worker の secret に置き、ブラウザには渡さない
 //  - 許可した Origin（自分のサイト）だけに CORS を返す
 //  - 合言葉（X-Proxy-Token。カンマ区切りで複数可）が一致した呼び出しだけ管理者のキーで中継する（他人に 1 日 1,000 回の枠を使われないため）
-//  - 利用者が自分の seats.aero キー（X-Seats-Key）を送ってきた場合は、そのキーで中継する（利用者自身の契約・枠。合言葉不要）
+//  - API キーを使ったログインは拒否する
 //  - seats.aero の残回数ヘッダーはそのまま返す
 const API = 'https://seats.aero/partnerapi/search';
 
@@ -13,7 +13,7 @@ function corsHeaders(origin, env) {
   if (ok) {
     h['Access-Control-Allow-Origin'] = origin;
     h['Access-Control-Allow-Methods'] = 'GET, OPTIONS';
-    h['Access-Control-Allow-Headers'] = 'X-Proxy-Token, X-Seats-Key, Content-Type';
+    h['Access-Control-Allow-Headers'] = 'X-Proxy-Token, Content-Type';
     h['Access-Control-Expose-Headers'] = 'X-RateLimit-Remaining, X-RateLimit-Limit, RateLimit-Remaining, X-Rate-Limit-Remaining';
     h['Access-Control-Max-Age'] = '86400';
   }
@@ -31,17 +31,14 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: originOk ? 204 : 403, headers: cors });
     if (origin && !originOk) return json({ error: 'この呼び出し元は許可されていません（ALLOWED_ORIGINS を確認）' }, 403, cors);
 
-    // 使うキーを決める
-    //  (1) 利用者が自分の seats.aero キーを送ってきた（X-Seats-Key）→ そのキーで中継。利用者自身の契約・枠で動くので合言葉は不要
-    //  (2) 合言葉（X-Proxy-Token）が登録済みのいずれかと一致 → 管理者のキー（secret）で中継
-    const ownKey = (request.headers.get('X-Seats-Key') || '').trim();
+    // Shared access only. API keys are server-side secrets, never login passphrases.
     const tokens = (env.PROXY_TOKEN || '').split(',').map(s => s.trim()).filter(Boolean);
-    const tokenOk = tokens.length && tokens.includes(request.headers.get('X-Proxy-Token') || '');
-    const mode = ownKey ? 'own-key' : tokenOk ? 'shared' : null;
-    if (!mode) {
-      return json({ error: '検索を使うには、設定で「自分の seats.aero API キー」を入れるか、このサイトの管理者から合言葉をもらって入力してください' }, 401, cors);
+    const token = request.headers.get('X-Proxy-Token') || '';
+    if (!token || token === env.SEATS_AERO_KEY || !tokens.includes(token)) {
+      return json({ error: '合言葉が違うか、変更されています。' }, 401, cors);
     }
-    const key = ownKey || env.SEATS_AERO_KEY;
+    const mode = 'shared';
+    const key = env.SEATS_AERO_KEY;
 
     if (url.pathname === '/api/ping') return json({ ok: true, hasKey: !!key, mock: false, proxy: 'cloudflare', mode }, 200, cors);
 

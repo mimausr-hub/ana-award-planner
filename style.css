@@ -203,3 +203,10 @@ summary { cursor: pointer; }
 #connectionForm { max-width: 620px; }
 footer a { color: var(--primary-strong); }
 @media(max-width: 560px) { .welcome { align-items: stretch; flex-direction: column; } .brand h1 { font-size: 14px; } .helpbtn { flex-shrink: 0; } }
+
+.login-card { max-width: 480px; margin: 48px auto; padding: 32px; }
+.login-card h2 { font-size: 23px; margin: 16px 0; }
+.login-icon { width: 48px; height: 48px; }
+.login-card .primary { width: 100%; margin: 12px 0; }
+.login-card input { font-size: 16px; }
+@media(max-width:560px) { .login-card { margin: 20px auto; padding: 24px; } }

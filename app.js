@@ -13,6 +13,7 @@
   });
   let S = load();
   if (!['quick', 'tips'].includes(S.tab)) S.tab = 'quick'; // 旧版のタブ名が残っていたら戻す
+  if (S.settings.authVersion !== 2) { delete S.settings.proxyToken; delete S.settings.seatsKey; S.settings.authVersion = 2; save(); }
   S._cal = null; // カレンダーの開閉状態は再読込で閉じる
   function load() {
     try { const s = JSON.parse(localStorage.getItem(LS)); if (s && typeof s === 'object') { const d = defaultState(); return Object.assign(d, s, { settings: Object.assign(d.settings, s.settings || {}), q: Object.assign(d.q, s.q || {}) }); } } catch (e) { /* ignore */ }
@@ -690,15 +691,15 @@
   // 中継サーバー: 設定の「中継 URL」（Cloudflare Worker）があればそこへ、無ければ同じ場所の serve.py（./api）へ
   const isLocalHost = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   const proxyBase = () => isLocalHost ? '' : String(D.defaultProxyUrl || '').replace(/\/+$/, '');
-  const proxyHeaders = () => { const h = {}; if (S.settings.seatsKey) h['X-Seats-Key'] = S.settings.seatsKey; if (S.settings.proxyToken) h['X-Proxy-Token'] = S.settings.proxyToken; return h; }; // 自分のキーがあればそれを使い、無ければ合言葉で管理者のキー
+  const proxyHeaders = () => S.settings.proxyToken ? { 'X-Proxy-Token': S.settings.proxyToken } : {};
   function probeProxy() {
     const base = proxyBase();
     const url = base ? base + '/api/ping' : './api/ping';
-    return fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(30000), headers: base ? proxyHeaders() : {} }).then(async r => { const j = r.ok ? await r.json() : null; if (!r.ok && base) { const e = await r.json().catch(() => ({})); return { ok: false, error: e.error || ('HTTP ' + r.status), remote: true }; } return j; }).then(j => { proxyInfo = j; if (j && base) j.remote = true; }).catch(() => { proxyInfo = null; });
+    return fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(30000), headers: base ? proxyHeaders() : {} }).then(async r => { const j = r.ok ? await r.json() : null; if (!r.ok && base) { const e = await r.json().catch(() => ({})); return { ok: false, status: r.status, error: e.error || ('HTTP ' + r.status), remote: true }; } return j; }).then(j => { proxyInfo = j; if (j && base) j.remote = true; }).catch(() => { proxyInfo = null; });
   }
   function apiStatus() {
     if (proxyBase()) {
-      if (proxyInfo && proxyInfo.remote && proxyInfo.hasKey) return { ok: true, label: proxyInfo.mode === 'own-key' ? '中継サーバー経由・自分の seats.aero キー（自分の枠で検索）' : '中継サーバー経由・管理者のキー（合言葉）' };
+      if (proxyInfo && proxyInfo.ok && proxyInfo.remote && proxyInfo.hasKey) return { ok: true, label: proxyInfo.mode === 'own-key' ? '中継サーバー経由・自分の seats.aero キー（自分の枠で検索）' : '中継サーバー経由・管理者のキー（合言葉）' };
       if (proxyInfo && proxyInfo.remote && proxyInfo.error) return { ok: false, label: `中継サーバーに接続できません: ${proxyInfo.error}` };
       if (proxyInfo && proxyInfo.remote) return { ok: false, label: '中継サーバーに API キーが登録されていません（wrangler secret put SEATS_AERO_KEY）' };
       return { ok: false, label: '検索を使うには、画面上の「設定」で自分の seats.aero API キーか、管理者からもらった合言葉を入れてください' };
@@ -718,12 +719,12 @@
   async function apiFetchOnce(qs) {
     if (proxyBase()) {
       const r = await fetch(proxyBase() + '/api/search?' + qs, { cache: 'no-store', signal: AbortSignal.timeout(30000), headers: proxyHeaders() }); const j = await r.json().catch(() => ({}));
-      if (!r.ok) { const e = new Error(j.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+      if (!r.ok) { if (r.status === 401 && !isLocalHost) { proxyInfo = null; delete S.settings.proxyToken; save(); loginError = '合言葉が変更されています。新しい合言葉を入力してください。'; } const e = new Error(j.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
       noteRemaining(r.headers); return j;
     }
     if (proxyInfo && (proxyInfo.hasKey || proxyInfo.mock)) {
       const r = await fetch('./api/search?' + qs, { cache: 'no-store' }); const j = await r.json();
-      if (!r.ok) { const e = new Error(j.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+      if (!r.ok) { if (r.status === 401 && !isLocalHost) { proxyInfo = null; delete S.settings.proxyToken; save(); loginError = '合言葉が変更されています。新しい合言葉を入力してください。'; } const e = new Error(j.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
       noteRemaining(r.headers); return j;
     }
     throw new Error('中継サーバーに接続できません');
@@ -745,16 +746,8 @@
     const ch = charts();
     return `${flashMsg ? msg('info', flashMsg) : ''}<div class="card"><h2>設定</h2>
       <p class="muted">現在の接続: <b>${esc(apiStatus().label)}</b></p>
-      <p>管理者から届いた合言葉を入力して「保存して接続確認」を押してください。共有するのは通常のサイトURLだけです。</p>
-      <form id="connectionForm">
-        <label class="f">合言葉<input id="proxyToken" type="password" value="${esc(S.settings.proxyToken || '')}" autocomplete="off" placeholder="管理者からもらった合言葉"></label>
-        <details style="margin-top:12px" ${S.settings.seatsKey ? 'open' : ''}><summary>自分の seats.aero APIキーを使う</summary>
-          <p class="muted">自分の契約の検索枠を使う場合に入力してください。両方入力した場合はAPIキーを優先します。</p>
-          <label class="f">seats.aero APIキー<input id="seatsKey" type="password" value="${esc(S.settings.seatsKey || '')}" autocomplete="off"></label>
-        </details>
-        <p class="muted">入力した情報はこのブラウザに保存し、検索時に中継サーバーへHTTPSのヘッダーで送信します。URLや共有リンクには含めません。共用端末では利用後に「接続情報を削除」を押してください。</p>
-        <div class="row"><button class="btn primary" type="submit">保存して接続確認</button><button class="btn" type="button" data-act="forgetConnection">接続情報を削除</button></div>
-      </form>
+      <p>合言葉でログインしています。別の合言葉に切り替える場合はログアウトしてください。</p>
+      <button class="btn" data-act="forgetConnection">ログアウト・保存した合言葉を削除</button>
       <div id="connectionMsg" role="status" aria-live="polite"></div>
       <h3>友人に共有する</h3>
       <p class="muted">サイトのURLをコピーして送れます。合言葉は別途伝えてください。</p>
@@ -768,13 +761,24 @@
       <p class="muted" style="margin-top:12px">データ版 ${esc(D.version)}。必要マイルは推定値を含みます。予約前にANA公式の必要マイル数・ルールを必ず確認してください。本アプリはANAのサイトに自動アクセスしません。</p></details></div>`;
   }
 
+  let loginBusy = false;
+  let loginError = '';
+  const needsLogin = () => !isLocalHost && !(proxyInfo && proxyInfo.ok && proxyInfo.hasKey && proxyInfo.mode === 'shared');
+  function renderLogin() {
+    return `<section class="card login-card"><img class="login-icon" src="icon.svg" alt=""><h2>合言葉を入力してください</h2>
+      <p class="muted">ANA特典航空券プランナーへようこそ。<br>管理者から届いた合言葉で、空席検索を始められます。</p>
+      <form id="loginForm"><label class="f">合言葉<input id="loginToken" type="password" autocomplete="off" required maxlength="200" placeholder="合言葉" ${loginBusy ? 'disabled' : ''}></label>
+      <p class="muted">APIキーではありません。合言葉はURLに含まれません。このブラウザに保存され、次回から自動で確認します。</p>
+      <button class="btn primary" type="submit" ${loginBusy ? 'disabled' : ''}>${loginBusy ? '確認中…' : 'はじめる'}</button></form>
+      <div role="alert" aria-live="polite">${loginError ? msg('err', loginError) : ''}${flashMsg ? msg('info', flashMsg) : ''}</div></section>`;
+  }
   // ---------- render ----------
   const TABS = [['quick', '探す'], ['tips', '設定']];
   function render() {
-    const tabs = TABS;
+    const tabs = needsLogin() ? [] : TABS;
     document.getElementById('tabs').innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'active' : ''}">${l}</button>`).join('');
     const app = document.getElementById('app');
-    app.innerHTML = ({ quick: renderQuick, tips: renderSettings }[S.tab] || renderQuick)();
+    app.innerHTML = needsLogin() ? renderLogin() : ({ quick: renderQuick, tips: renderSettings }[S.tab] || renderQuick)();
     if (LIVE.status === 'running') app.querySelectorAll('input, select, button').forEach(el => { el.disabled = true; });
   }
 
@@ -805,7 +809,7 @@
     if (act.startsWith('calclear:')) { const key = act.slice(9); delete S.dates[key]; LIVE.results = null; LIVE.status = 'idle'; LIVE.log = []; S._cal = null; save(); render(); return; }
     if (act === 'saveChart') { const m = document.getElementById('chartMsg'); try { const o = JSON.parse(document.getElementById('chartJson').value); if (!o.partnerChart || !o.anaChart) throw new Error('partnerChart と anaChart が必要です'); o.partnerCityOverride = o.partnerCityOverride || {}; o.anaSeasons = o.anaSeasons || D.anaSeasons; o.anaFuel = o.anaFuel || D.anaFuel; o.jalChart = o.jalChart || D.jalChart; S.chartOverride = o; save(); m.innerHTML = msg('ok', '保存しました。'); } catch (err) { m.innerHTML = msg('err', 'JSONエラー: ' + err.message); } }
     if (act === 'openSettings') { S.tab = 'tips'; history.replaceState(null, '', location.pathname + '#settings'); save(); render(); return; }
-    if (act === 'forgetConnection') { delete S.settings.proxyToken; delete S.settings.seatsKey; proxyInfo = null; LIVE.cache = { out: null, ret: null }; save(); render(); return; }
+    if (act === 'forgetConnection') { loginError = ''; loginBusy = false; delete S.settings.proxyToken; delete S.settings.seatsKey; proxyInfo = null; LIVE.cache = { out: null, ret: null }; save(); render(); return; }
     if (act === 'copyShare') { const url = location.origin + location.pathname; (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => { b.textContent = 'コピーしました'; }).catch(() => { window.prompt('このURLをコピーしてください', url); }); return; }
     if (act === 'resetChart') { S.chartOverride = null; save(); render(); }
     if (act === 'resetAll') { if (window.confirm('入力・設定をすべて初期化します。よろしいですか？')) { S = defaultState(); proxyInfo = null; LIVE.cache = { out: null, ret: null }; LIVE.results = null; LIVE.status = 'idle'; save(); render(); } }
@@ -822,21 +826,28 @@
     } else if (h === 'settings') { S.tab = 'tips'; save(); }
   }
   app.addEventListener('submit', async e => {
-    if (e.target.id !== 'connectionForm') return;
+    if (e.target.id !== 'loginForm') return;
     e.preventDefault();
-    S.settings.proxyToken = document.getElementById('proxyToken').value.trim();
-    S.settings.seatsKey = document.getElementById('seatsKey').value.trim();
-    delete S.settings.proxyUrl;
-    LIVE.cache = { out: null, ret: null };
-    proxyInfo = null; save();
-    const button = e.target.querySelector('[type=submit]'); button.disabled = true; button.textContent = '接続を確認中…';
-    await probeProxy(); render();
-    const target = document.getElementById('connectionMsg');
-    if (target) target.innerHTML = msg(apiStatus().ok ? 'ok' : 'err', apiStatus().ok ? '接続できました。「探す」から空席を検索できます。' : apiStatus().label);
+    if (loginBusy) return;
+    const token = document.getElementById('loginToken').value.trim();
+    if (!token) { loginError = '合言葉を入力してください。'; render(); return; }
+    S.settings.proxyToken = token;
+    delete S.settings.seatsKey;
+    loginBusy = true; loginError = ''; proxyInfo = null; render();
+    await probeProxy();
+    loginBusy = false;
+    if (!needsLogin()) {
+      S.tab = 'quick'; save(); history.replaceState(null, '', location.pathname); flashMsg = null;
+    } else {
+      delete S.settings.proxyToken; save();
+      loginError = proxyInfo && proxyInfo.status === 401 ? '合言葉が違うか、変更されています。新しい合言葉を入力してください。' : '接続を確認できませんでした。通信環境を確認して、もう一度お試しください。';
+    }
+    render();
   });
   applyHash();
   window.addEventListener('hashchange', () => { if (location.hash === '#settings' || /(?:key|token|api_key)=/i.test(location.hash)) { applyHash(); render(); } });
+  loginBusy = !isLocalHost && !!S.settings.proxyToken;
   render();
-  probeProxy().then(() => render());
+  if (isLocalHost || S.settings.proxyToken) probeProxy().then(() => { loginBusy = false; if (!isLocalHost && needsLogin()) { loginError = proxyInfo && proxyInfo.status === 401 ? '合言葉が変更されています。新しい合言葉を入力してください。' : '接続できませんでした。合言葉を入力して再試行してください。'; delete S.settings.proxyToken; save(); } render(); });
   if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) { navigator.serviceWorker.register('./sw.js').catch(() => {}); }
 })();
