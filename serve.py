@@ -104,6 +104,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         u = urllib.parse.urlsplit(self.path)
+        if any(part.startswith('.') for part in urllib.parse.unquote(u.path).split('/') if part):
+            return self.send_json(404, {'error': 'not found'})
         if u.path == '/api/ping':
             return self.send_json(200, {'ok': True, 'hasKey': bool(load_key()), 'mock': os.environ.get('SEATS_AERO_MOCK') == '1'})
         if u.path == '/api/search':

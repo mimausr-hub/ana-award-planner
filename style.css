@@ -45,7 +45,7 @@ main { max-width: 960px; margin: 0 auto; padding: 16px; }
 .muted { color: var(--muted); font-size: 13px; }
 .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
-select, input[type=text], input[type=number], input[type=date], textarea { width: 100%; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); color: var(--text); }
+select, input[type=text], input[type=password], input[type=number], input[type=date], textarea { width: 100%; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); color: var(--text); }
 textarea { min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 button.btn { font: inherit; font-size: 14px; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-soft); color: var(--text); cursor: pointer; }
 button.btn.primary { background: var(--primary); color: #fff; border-color: transparent; font-weight: 700; }
@@ -189,3 +189,17 @@ table.legs tr.inputrow td { color: var(--text); background: var(--surface-soft);
 table.sum th:nth-child(2), table.sum td:nth-child(2) { background: rgba(15, 118, 110, 0.06); }
 table.sum th:nth-child(3), table.sum td:nth-child(3) { background: rgba(194, 65, 12, 0.06); }
 table.sum tr.full td:nth-child(2) { background: rgba(15, 118, 110, 0.14); } table.sum tr.full td:nth-child(3) { background: rgba(194, 65, 12, 0.14); }
+
+.intro { padding: 22px 2px 26px; }
+.eyebrow { color: var(--primary); font-size: 11px; letter-spacing: 2px; font-weight: 700; }
+.intro h2 { font-size: clamp(25px, 5vw, 36px); letter-spacing: -.04em; margin: 8px 0; }
+.intro p { color: var(--muted); margin: 6px 0 20px; }
+.steps { display: flex; gap: 10px 24px; flex-wrap: wrap; font-size: 12px; color: var(--primary-strong); }
+.welcome { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-color: var(--primary); }
+.welcome p { margin: 0; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+summary { cursor: pointer; }
+#connectionForm { max-width: 620px; }
+footer a { color: var(--primary-strong); }
+@media(max-width: 560px) { .welcome { align-items: stretch; flex-direction: column; } .brand h1 { font-size: 14px; } .helpbtn { flex-shrink: 0; } }

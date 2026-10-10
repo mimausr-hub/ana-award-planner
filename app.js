@@ -136,7 +136,8 @@
       const params = { origin_airport: oAps.join(','), destination_airport: dAps.join(','), start_date: start, end_date: end, cabins: cabinsParam, sources, take: 1000, include_trips: true };
       if (data.length) params.skip = data.length;
       const j = await apiFetch(params);
-      const rows = j.data || []; data = data.concat(rows);
+      if (!Array.isArray(j.data)) throw new Error('空席データの形式が正しくありません。時間をおいて再試行してください。');
+      const rows = j.data; data = data.concat(rows);
       if (onPage) onPage(data.length, LIVE.calls);
       if (!j.hasMore || !rows.length) break;
     }
@@ -286,7 +287,7 @@
     const SURE_MAX_H = 72;
     const reliable = l => { if (!sureMode()) return true; const h = ageOf(l); if (h != null && h > SURE_MAX_H) return false; return chanceOf(l, !G.ana).k !== 'ng'; };
     let dropped = 0;
-    const byCab = arr => { const c = arr.filter(l => l.cabin === cabin); const r = c.filter(reliable); dropped += c.length - r.length; return r; };
+    const byCab = arr => { const c = arr.filter(l => l.cabin === cabin && (!G.ana || !l.fn.startsWith('OZ') || l.date <= '2026-12-16')); const r = c.filter(reliable); dropped += c.length - r.length; return r; };
     const L1 = byCab(R.L1), L2 = byCab(R.L2), L2b = byCab(R.L2b || []), L3 = byCab(R.L3), L3b = byCab(R.L3b || []), L4 = byCab(R.L4);
     if (sureMode()) log(`取れそう度モード: ${SURE_MAX_H / 24} 日以上前のデータの便と会員枠のみの便 ${dropped} 便を除外してから組合せを作ります`);
     const cfgs = G.carriers().filter(cfg => cfg.zones.includes(dz));
@@ -393,6 +394,8 @@
   async function liveSearch() {
     const q = S.q; const dep = S.dates['q.dep'] || '', ret = S.dates['q.ret'] || '';
     if (!q.dest || !dep) { LIVE.status = 'error'; LIVE.msg = '目的地と出発希望日を入れてください（帰国日があれば復路も探します）'; render(); return; }
+    if (LIVE.status === 'running') return;
+    if (dep < todayISO() || (ret && ret < dep)) { LIVE.status = 'error'; LIVE.msg = '出発日は今日以降、帰国日は出発日以降を選んでください。'; render(); return; }
     LIVE.status = 'running'; LIVE.log = []; LIVE.results = { groups: [], cabin: S.cabin }; LIVE.calls = 0; LIVE.msg = ''; render();
     const log = t => { LIVE.log.push(t); render(); };
     const fallback = S.settings.liveFallbackY !== false && S.cabin !== 'Y';
@@ -548,7 +551,7 @@
     groupSummary(g).forEach(s => { h += msg(s.ok ? 'ok' : 'warn', s.t); });
     if (sureMode() && g.partners.some(p => p.outC.length || p.retC.length)) h += `<div class="msg info">取れそう度モード: 3 日以上前のデータの便と、運航会社の会員枠にしか出ていない便を除いてから乗継を組んでいます（要約の「空きなし」もその前提）。残った候補は「最終確認の新しさ」「提携枠に出ているか」「残席の余裕」「複数プログラムに出ているか」を点数化し、いちばん弱い便で評価して高い順に並べています。◎＝全便が提携枠で 24 時間以内に確認、○＝要確認の便あり、△＝会員枠のみの便か 3 日以上前のデータ。${fuelSaver() ? '燃油節約モードも ON のため、燃油が安い順の中で取れそうな順になります。' : ''}</div>`;
     if (fuelSaver() && g.partners.some(p => p.outC.length || p.retC.length)) h += `<div class="msg info">燃油節約モード: 各候補に燃油の目安（運航会社の燃油設定と区間から見積もり。ANA 便と UA の日本発着区間は ANA 公式表、SQ・VN・NZ・コパ・アビアンカ・エチオピアは 0 円、その他は会社ごとの係数）を付け、安い順に並べています。正確な額は ANA サイトの「税金・料金等」で確認してください。</div>`;
-    h += `<table class="sum" style="margin-top:6px"><thead><tr><th>航空会社</th><th>往路 <span class="muted" style="font-weight:400">候補のある日数（往路ありを先に）</span></th><th>復路 <span class="muted" style="font-weight:400">候補のある日数</span></th><th>${G.ana ? 'ANAマイル' : 'JALマイル'}</th><th>燃油</th><th></th></tr></thead><tbody>`;
+    h += `<table class="sum" style="margin-top:6px"><thead><tr><th>航空会社</th><th>往路 <span class="muted" style="font-weight:400">候補のある日数（往路ありを先に）</span></th><th>復路 <span class="muted" style="font-weight:400">候補のある日数</span></th><th>${G.ana ? 'ANAマイル（往復参考）' : 'JALマイル'}</th><th>燃油</th><th></th></tr></thead><tbody>`;
     if (g.direct) {
       const o = g.direct.out.length, r = g.direct.ret.length;
       h += `<tr class="${(o || r) ? 'full' : ''}"><td><b>${esc(cname(g.direct.cfg.c))} 直行</b></td><td>${cell(hasOut, g.direct.out)}</td><td>${cell(hasRet, g.direct.ret)}</td><td>${milesCell(true)}</td><td>${fuelCell(g.direct.cfg.c)}</td><td>${(o || r) ? `<a href="#live-${gi}-direct" class="muted">詳細</a>` : ''}</td></tr>`;
@@ -592,7 +595,7 @@
   function renderLive() {
     const R = LIVE.results;
     const w = S.settings.window == null ? 6 : S.settings.window;
-    let h = `<div class="card"><h2>空席を探す <span class="muted" style="font-weight:400;font-size:12px">seats.aero のデータ・便名/時刻/残席つき</span></h2>
+    let h = `${proxyInfo && proxyInfo.mock ? msg('warn', '動作確認用のサンプルデータです。実際の空席ではありません。') : ''}<div class="card"><h2>空席を探す <span class="muted" style="font-weight:400;font-size:12px">seats.aero のデータ・便名/時刻/残席つき</span></h2>
       <p class="help muted">ANA 直行便を先に調べ、次にスターアライアンス各社とベトナム航空のハブ経由を組みます。さらに「日本→地域の玄関ハブ（ANA 直行や提携長距離便）→現地の提携会社で目的地へ」という会社をまたぐ乗継（現地ハブを挟む 3 区間を含む。海外乗継 2 回まで）も組みます。希望日の前後${esc(String(w))}日、同じハブで 1.5〜72 時間（24 時間超は★）でつながり、<b>${esc(String(paxN()))}人分の席がある</b>組合せだけを出します。往路・復路の「○ 3日」は候補のある出発日の数、「燃油」は ANA 便は公式表（1区間×往復）、他社便は有無と実例ベースの目安です。各便の「seats.aero」リンクでその日・その区間を seats.aero 上で開けます。全社・全クラスをまとめて問い合わせるので、1 回の探索で使う API は往復 4〜6 回（片道 2〜3 回。件数が多いとページ送りで増える）です。上限は 1 日 1,000 回（UTC 0 時＝日本時間 朝 9 時リセット）で、前後の日数を広げても回数は変わりません。往路か復路の日付だけ変えて再検索すると、変えていない側は前回の取得結果（6 時間以内）を再利用するので API はその側の分だけで済みます。</p>
       <div class="row chks">
         ${S.cabin === 'Y' ? `<span class="muted" style="font-size:12px">エコノミーで探します（上位クラスの再探索はありません）</span>` : `<label><input type="checkbox" data-k="settings.liveFallbackY" ${S.settings.liveFallbackY !== false ? 'checked' : ''}> ${esc(CABINS[S.cabin])}が無ければエコノミーも探す</label>`}
@@ -616,6 +619,8 @@
   function renderQuick() {
     const q = S.q; const a = quickAnalysis();
     let h = flashMsg ? msg('ok', flashMsg) : '';
+    h += `<section class="intro"><span class="eyebrow">AWARD FLIGHT PLANNER</span><h2>マイルで、次の旅へ。</h2><p>行きたい場所と日程から、直行便も乗り継ぎも探せます。</p><div class="steps"><span>1. 行き先と日程を選ぶ</span><span>2. 空席の候補を探す</span><span>3. ANA公式で確認・予約</span></div></section>`;
+    if (!apiStatus().ok) h += `<div class="card welcome"><div><h2>初めての方へ</h2><p class="muted">空席検索には合言葉、またはご自身の seats.aero APIキーが必要です。設定画面から入力してください。</p></div><button class="btn primary" data-act="openSettings">接続を設定する</button></div>`;
     h += `<div class="card"><h2>どこへ、いつ</h2>
       <p class="help muted">出発地・目的地・帰着地・クラス・人数と日程を入れて「空席を探す」を押すと、seats.aero のデータから ANA マイルで取れる便を組んで出します。</p>
       <div class="grid">
@@ -627,16 +632,17 @@
       </div>
       <div class="grid" style="margin-top:10px">
         <div><div class="muted" style="font-size:12px">出発日</div>${dateButton('q.dep', a.dep)}</div>
-        <div><div class="muted" style="font-size:12px">帰国日</div>${dateButton('q.ret', a.ret)}</div>
+        <div><div class="muted" style="font-size:12px">帰国日（片道なら未選択）</div>${dateButton('q.ret', a.ret)}</div>
       </div></div>`;
     if (!q.dest) return h + `<div class="card">${msg('info', '目的地を選んでください。')}</div>`;
 
+    h += msg('info', 'マイル数は1人分の往復参考値です（片道検索でも往復の値を表示）。シーズン・燃油を含め未検証の推定値があるため、予約時はANA公式で確認してください。');
     // 時期・必要マイル・直行便の有無
     h += `<div class="card"><div class="status-grid">`;
     h += `<div class="box"><div class="l">時期</div><div>${a.dep ? seasonTag(a.dep) : '<span class="muted">出発日を入れる</span>'}${a.ret && a.sRet !== a.sDep ? ` → ${seasonTag(a.ret)}` : ''}</div>${a.sDep === 'H' ? `<div class="muted" style="font-size:12px">ANA便は最も高い時期。他社便を1便入れると固定マイル</div>` : ''}</div>`;
     const fuelAsOf = (charts().anaFuel || D.anaFuel || {}).asOf || '';
-    h += `<div class="box"><div class="l">ANA便のみ</div><div class="big">${fmt(a.anaMiles)}</div><div class="muted" style="font-size:12px">${esc(a.anaNote || (a.dep ? 'シーズン制' : ''))}</div>${a.fuelRT != null && charts().anaChart[a.dz] ? `<div class="muted" style="font-size:12px">燃油 約¥${fmt(a.fuelRT)}/人（${a.ret ? '往復' : '片道'}・${esc(fuelAsOf)}）</div>` : (charts().anaChart[a.dz] ? '' : '<div class="muted" style="font-size:12px">ANA 便の路線なし</div>')}</div>`;
-    h += `<div class="box"><div class="l">他社便を含む</div><div class="big">${a.dz === 5 ? '不可' : fmt(a.pMiles)}</div><div class="muted" style="font-size:12px">${a.anaMiles != null && a.pMiles != null && a.anaMiles > a.pMiles ? `▲${fmt(a.anaMiles - a.pMiles)}` : '通年固定'}</div><div class="muted" style="font-size:12px">燃油は運航会社次第（SQ・VN は 0 円）</div></div>`;
+    h += `<div class="box"><div class="l">ANA便のみ（往復参考）</div><div class="big">${fmt(a.anaMiles)}</div><div class="muted" style="font-size:12px">${esc(a.anaNote || (a.dep ? 'シーズン制' : ''))}</div>${a.fuelRT != null && charts().anaChart[a.dz] ? `<div class="muted" style="font-size:12px">燃油 約¥${fmt(a.fuelRT)}/人（${a.ret ? '往復' : '片道'}・${esc(fuelAsOf)}）</div>` : (charts().anaChart[a.dz] ? '' : '<div class="muted" style="font-size:12px">ANA 便の路線なし</div>')}</div>`;
+    h += `<div class="box"><div class="l">他社便を含む（往復参考）</div><div class="big">${a.dz === 5 ? '不可' : fmt(a.pMiles)}</div><div class="muted" style="font-size:12px">${a.anaMiles != null && a.pMiles != null && a.anaMiles > a.pMiles ? `▲${fmt(a.anaMiles - a.pMiles)}` : '通年固定'}</div><div class="muted" style="font-size:12px">燃油は運航会社次第（SQ・VN は 0 円）</div></div>`;
     const direct = a.anaDirectFrom ? `<span class="mark ok">○</span> ${esc(n(q.origin))}発あり` : a.anaJP.length ? `<span class="mark na">△</span> ${a.anaJP.map(n).join('・')}発のみ（国内線を足せば同マイル）` : `<span class="mark ng">×</span> なし`;
     const others = a.othersFrom.length ? a.othersFrom.map(cname).join('・') : (a.others.length ? `他都市発: ${a.others.map(o => cname(o.c)).join('・')}` : 'なし');
     h += `<div class="box"><div class="l">ANA直行便</div><div>${direct}</div><div class="muted" style="font-size:12px">他社直行: ${esc(others)}</div></div>`;
@@ -683,19 +689,19 @@
   let proxyInfo = null; // {ok, hasKey, mock}
   // 中継サーバー: 設定の「中継 URL」（Cloudflare Worker）があればそこへ、無ければ同じ場所の serve.py（./api）へ
   const isLocalHost = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
-  const proxyBase = () => { const v = String(S.settings.proxyUrl || '').trim(); if (v) return v.replace(/\/+$/, ''); return isLocalHost ? '' : String(D.defaultProxyUrl || '').replace(/\/+$/, ''); }; // ローカル起動時は serve.py、公開サイトでは既定の Worker
+  const proxyBase = () => isLocalHost ? '' : String(D.defaultProxyUrl || '').replace(/\/+$/, '');
   const proxyHeaders = () => { const h = {}; if (S.settings.seatsKey) h['X-Seats-Key'] = S.settings.seatsKey; if (S.settings.proxyToken) h['X-Proxy-Token'] = S.settings.proxyToken; return h; }; // 自分のキーがあればそれを使い、無ければ合言葉で管理者のキー
   function probeProxy() {
     const base = proxyBase();
     const url = base ? base + '/api/ping' : './api/ping';
-    return fetch(url, { cache: 'no-store', headers: base ? proxyHeaders() : {} }).then(async r => { const j = r.ok ? await r.json() : null; if (!r.ok && base) { const e = await r.json().catch(() => ({})); return { ok: false, error: e.error || ('HTTP ' + r.status), remote: true }; } return j; }).then(j => { proxyInfo = j; if (j && base) j.remote = true; }).catch(() => { proxyInfo = null; });
+    return fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(30000), headers: base ? proxyHeaders() : {} }).then(async r => { const j = r.ok ? await r.json() : null; if (!r.ok && base) { const e = await r.json().catch(() => ({})); return { ok: false, error: e.error || ('HTTP ' + r.status), remote: true }; } return j; }).then(j => { proxyInfo = j; if (j && base) j.remote = true; }).catch(() => { proxyInfo = null; });
   }
   function apiStatus() {
     if (proxyBase()) {
       if (proxyInfo && proxyInfo.remote && proxyInfo.hasKey) return { ok: true, label: proxyInfo.mode === 'own-key' ? '中継サーバー経由・自分の seats.aero キー（自分の枠で検索）' : '中継サーバー経由・管理者のキー（合言葉）' };
       if (proxyInfo && proxyInfo.remote && proxyInfo.error) return { ok: false, label: `中継サーバーに接続できません: ${proxyInfo.error}` };
       if (proxyInfo && proxyInfo.remote) return { ok: false, label: '中継サーバーに API キーが登録されていません（wrangler secret put SEATS_AERO_KEY）' };
-      return { ok: false, label: '検索を使うには、フッターの「設定」で自分の seats.aero API キーか、管理者からもらった合言葉を入れてください' };
+      return { ok: false, label: '検索を使うには、画面上の「設定」で自分の seats.aero API キーか、管理者からもらった合言葉を入れてください' };
     }
     if (proxyInfo && proxyInfo.mock) return { ok: true, label: 'ローカルサーバー（ダミー応答モード）' };
     if (proxyInfo && proxyInfo.hasKey) return { ok: true, label: 'ローカルサーバー経由（APIキー設定済）' };
@@ -711,7 +717,7 @@
   const RETRY_WAIT = [5000, 15000, 30000]; // HTTP 429（レート制限）のときの待ち時間
   async function apiFetchOnce(qs) {
     if (proxyBase()) {
-      const r = await fetch(proxyBase() + '/api/search?' + qs, { cache: 'no-store', headers: proxyHeaders() }); const j = await r.json().catch(() => ({}));
+      const r = await fetch(proxyBase() + '/api/search?' + qs, { cache: 'no-store', signal: AbortSignal.timeout(30000), headers: proxyHeaders() }); const j = await r.json().catch(() => ({}));
       if (!r.ok) { const e = new Error(j.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
       noteRemaining(r.headers); return j;
     }
@@ -737,52 +743,54 @@
   // ---------- tab: settings ----------
   function renderSettings() {
     const ch = charts();
-    return `<div class="card"><h2>設定</h2>
+    return `${flashMsg ? msg('info', flashMsg) : ''}<div class="card"><h2>設定</h2>
       <p class="muted">現在の接続: <b>${esc(apiStatus().label)}</b></p>
-      <h3>検索を使うための設定（どちらか 1 つ）</h3>
-      <div class="grid">
-        <label class="f">① 自分の seats.aero API キー<br><span class="muted" style="font-weight:400">seats.aero Pro（月 9.99 ドル）→ 設定 → API タブで発行。自分の契約・自分の枠（1 日 1,000 回）で検索します。キーはこの端末のブラウザにだけ保存され、中継サーバーを通して seats.aero に渡るだけで、どこにも記録されません</span><input type="password" data-k="settings.seatsKey" value="${esc(S.settings.seatsKey || '')}" placeholder="seats.aero の API キー" autocomplete="off"></label>
-        <label class="f">② 管理者からもらった合言葉<br><span class="muted" style="font-weight:400">管理者の seats.aero の枠を借りて検索します（管理者の 1 日 1,000 回を一緒に使います）</span><input type="password" data-k="settings.proxyToken" value="${esc(S.settings.proxyToken || '')}" autocomplete="off"></label>
-      </div>
-      <h3 style="margin-top:14px">探索の設定</h3>
-      <div class="grid">
-        <label class="f">希望日の前後（日）<input type="number" min="0" max="14" data-k="settings.window" value="${esc(S.settings.window == null ? 6 : S.settings.window)}"></label>
-        <label class="f">中継サーバー URL（通常は変更不要。空なら既定の Worker、ローカル起動時は serve.py）<input type="text" data-k="settings.proxyUrl" value="${esc(S.settings.proxyUrl || '')}" placeholder="${esc(D.defaultProxyUrl || '')}" autocomplete="off"></label>
-      </div>
-      <h3 style="margin-top:14px">家族に渡す招待リンク</h3>
-      <p class="muted">このリンクを一度開くと合言葉がその人の端末に保存され、設定を触らずに検索できます（合言葉はリンクに含まれるので、渡す相手は限ってください）。この設定画面自体は URL の末尾に <code>#settings</code> を付けたときだけ開きます。</p>
-      <div class="row"><input type="text" id="inviteLink" readonly value="${esc(S.settings.proxyToken ? `${location.origin}${location.pathname}#token=${encodeURIComponent(S.settings.proxyToken)}` : '')}" placeholder="合言葉を入れると生成されます" style="flex:1;min-width:260px"><button class="btn" data-act="copyInvite" ${S.settings.proxyToken ? '' : 'disabled'}>コピー</button></div>
-      <p class="muted" style="margin-top:12px">seats.aero Pro のキーは<b>本人の非商用利用</b>が条件です。管理者向け: 中継サーバーのデプロイ手順は <code>worker/README.md</code>。</p>
+      <p>管理者から届いた合言葉を入力して「保存して接続確認」を押してください。共有するのは通常のサイトURLだけです。</p>
+      <form id="connectionForm">
+        <label class="f">合言葉<input id="proxyToken" type="password" value="${esc(S.settings.proxyToken || '')}" autocomplete="off" placeholder="管理者からもらった合言葉"></label>
+        <details style="margin-top:12px" ${S.settings.seatsKey ? 'open' : ''}><summary>自分の seats.aero APIキーを使う</summary>
+          <p class="muted">自分の契約の検索枠を使う場合に入力してください。両方入力した場合はAPIキーを優先します。</p>
+          <label class="f">seats.aero APIキー<input id="seatsKey" type="password" value="${esc(S.settings.seatsKey || '')}" autocomplete="off"></label>
+        </details>
+        <p class="muted">入力した情報はこのブラウザに保存し、検索時に中継サーバーへHTTPSのヘッダーで送信します。URLや共有リンクには含めません。共用端末では利用後に「接続情報を削除」を押してください。</p>
+        <div class="row"><button class="btn primary" type="submit">保存して接続確認</button><button class="btn" type="button" data-act="forgetConnection">接続情報を削除</button></div>
+      </form>
+      <div id="connectionMsg" role="status" aria-live="polite"></div>
+      <h3>友人に共有する</h3>
+      <p class="muted">サイトのURLをコピーして送れます。合言葉は別途伝えてください。</p>
+      <button class="btn" data-act="copyShare">サイトのURLをコピー</button>
+      <details style="margin-top:20px"><summary>詳細設定・マイルチャート</summary>
+      <label class="f">希望日の前後（日）<input type="number" min="0" max="14" data-k="settings.window" value="${esc(S.settings.window == null ? 6 : S.settings.window)}"></label>
       <h3>マイルチャートの編集（JSON）</h3><p class="muted">partnerChart（提携・通年固定）、anaChart（ANA便・[L,R,H]）、partnerCityOverride（都市別上書き）、anaSeasons（シーズン区分の月日範囲）、anaFuel（ANA 便の燃油・1区間・円。ANA 公式が 2 ヶ月ごとに改定するので asOf と一緒に更新）、jalChart（ワンワールド表用の JAL マイル。JAL 便の路線別基本マイルと距離制チャート）。必要マイルと燃油の表示に使います。保存するとこの端末に記憶されます。</p>
       <textarea id="chartJson">${esc(JSON.stringify({ partnerChart: ch.partnerChart, partnerCityOverride: ch.partnerCityOverride, anaChart: ch.anaChart, anaSeasons: ch.anaSeasons, anaFuel: ch.anaFuel, jalChart: ch.jalChart }, null, 2))}</textarea>
       <div class="row" style="margin-top:8px"><button class="btn primary" data-act="saveChart">チャートを保存</button><button class="btn" data-act="resetChart">既定値に戻す</button><button class="btn" data-act="resetAll">全データを初期化</button></div>
       <div id="chartMsg"></div>
-      <p class="muted" style="margin-top:12px">データ版 ${esc(D.version)}。必要マイルは推定値を含みます。予約前にANA公式の必要マイル数・ルールを必ず確認してください。本アプリはANAのサイトに自動アクセスしません。</p></div>`;
+      <p class="muted" style="margin-top:12px">データ版 ${esc(D.version)}。必要マイルは推定値を含みます。予約前にANA公式の必要マイル数・ルールを必ず確認してください。本アプリはANAのサイトに自動アクセスしません。</p></details></div>`;
   }
 
   // ---------- render ----------
   const TABS = [['quick', '探す'], ['tips', '設定']];
   function render() {
-    const tabs = S.tab === 'tips' ? TABS : TABS.filter(([k]) => k !== 'tips'); // 設定はフッターの「設定」リンクから（紹介した人には見せない）
+    const tabs = TABS;
     document.getElementById('tabs').innerHTML = tabs.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'active' : ''}">${l}</button>`).join('');
     const app = document.getElementById('app');
     app.innerHTML = ({ quick: renderQuick, tips: renderSettings }[S.tab] || renderQuick)();
-    window.scrollTo({ top: 0 });
+    if (LIVE.status === 'running') app.querySelectorAll('input, select, button').forEach(el => { el.disabled = true; });
   }
 
   const helpBtn = document.getElementById('helpToggle');
   function applyHelp() { document.body.classList.toggle('showhelp', !!S.settings.showHelp); if (helpBtn) { helpBtn.textContent = S.settings.showHelp ? '説明を隠す' : '説明を表示'; helpBtn.classList.toggle('on', !!S.settings.showHelp); } }
   if (helpBtn) helpBtn.addEventListener('click', () => { S.settings.showHelp = !S.settings.showHelp; save(); applyHelp(); });
   applyHelp();
-  document.getElementById('tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (!b) return; S.tab = b.dataset.tab; save(); render(); });
+  document.getElementById('tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (!b) return; S.tab = b.dataset.tab; save(); history.replaceState(null, '', location.pathname + (S.tab === 'tips' ? '#settings' : '')); render(); });
   const app = document.getElementById('app');
   app.addEventListener('change', e => {
     flashMsg = null;
     const k = e.target.dataset.k; if (!k) return;
     let val = e.target.value;
-    if (e.target.type === 'number') val = val === '' ? '' : Number(val);
+    if (e.target.type === 'number') val = Math.max(Number(e.target.min), Math.min(Number(e.target.max), Math.round(Number(val) || Number(e.target.min))));
     if (e.target.type === 'checkbox') val = e.target.checked;
-    setPath(k, val); save(); render();
+    setPath(k, val); LIVE.results = null; LIVE.status = 'idle'; LIVE.log = []; save(); render();
     if (k === 'settings.proxyUrl' || k === 'settings.proxyToken' || k === 'settings.seatsKey') probeProxy().then(() => render());
   });
   app.addEventListener('click', e => {
@@ -793,26 +801,41 @@
     if (act === 'liverefresh') { LIVE.cache = { out: null, ret: null }; liveSearch(); return; }
     if (act.startsWith('cal:')) { const key = act.slice(4); if (S._cal === key) { S._cal = null; } else { S._cal = key; S._calMonth = (S.dates[key] || todayISO()).slice(0, 7); } save(); render(); return; }
     if (act.startsWith('calnav:')) { const [y, m] = (S._calMonth || todayISO().slice(0, 7)).split('-').map(Number); const d = new Date(y, m - 1 + Number(act.slice(7)), 1); S._calMonth = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; save(); render(); return; }
-    if (act.startsWith('calpick:')) { const [, key, iso] = act.split(':'); S.dates[key] = iso; S._cal = null; save(); render(); return; }
-    if (act.startsWith('calclear:')) { const key = act.slice(9); delete S.dates[key]; S._cal = null; save(); render(); return; }
+    if (act.startsWith('calpick:')) { const [, key, iso] = act.split(':'); S.dates[key] = iso; LIVE.results = null; LIVE.status = 'idle'; LIVE.log = []; S._cal = null; save(); render(); return; }
+    if (act.startsWith('calclear:')) { const key = act.slice(9); delete S.dates[key]; LIVE.results = null; LIVE.status = 'idle'; LIVE.log = []; S._cal = null; save(); render(); return; }
     if (act === 'saveChart') { const m = document.getElementById('chartMsg'); try { const o = JSON.parse(document.getElementById('chartJson').value); if (!o.partnerChart || !o.anaChart) throw new Error('partnerChart と anaChart が必要です'); o.partnerCityOverride = o.partnerCityOverride || {}; o.anaSeasons = o.anaSeasons || D.anaSeasons; o.anaFuel = o.anaFuel || D.anaFuel; o.jalChart = o.jalChart || D.jalChart; S.chartOverride = o; save(); m.innerHTML = msg('ok', '保存しました。'); } catch (err) { m.innerHTML = msg('err', 'JSONエラー: ' + err.message); } }
-    if (act === 'copyInvite') { const t = document.getElementById('inviteLink').value; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => { b.textContent = 'コピーしました'; setTimeout(() => { b.textContent = 'コピー'; }, 1500); }).catch(() => { window.prompt('コピーしてください', t); }); return; }
+    if (act === 'openSettings') { S.tab = 'tips'; history.replaceState(null, '', location.pathname + '#settings'); save(); render(); return; }
+    if (act === 'forgetConnection') { delete S.settings.proxyToken; delete S.settings.seatsKey; proxyInfo = null; LIVE.cache = { out: null, ret: null }; save(); render(); return; }
+    if (act === 'copyShare') { const url = location.origin + location.pathname; (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => { b.textContent = 'コピーしました'; }).catch(() => { window.prompt('このURLをコピーしてください', url); }); return; }
     if (act === 'resetChart') { S.chartOverride = null; save(); render(); }
-    if (act === 'resetAll') { if (window.confirm('入力・設定をすべて初期化します。よろしいですか？')) { S = defaultState(); save(); render(); } }
+    if (act === 'resetAll') { if (window.confirm('入力・設定をすべて初期化します。よろしいですか？')) { S = defaultState(); proxyInfo = null; LIVE.cache = { out: null, ret: null }; LIVE.results = null; LIVE.status = 'idle'; save(); render(); } }
   });
 
-  // URL のハッシュ: #settings で設定を開く（画面上にリンクは無い）。#token=合言葉 / #key=APIキー は保存してから URL から消す（家族に渡す招待リンク用）
-  let flashMsg = null; // 招待リンクで保存したときの案内（次の操作まで表示。保存はしない）
+  // Legacy credential links are discarded, never imported or generated.
+  let flashMsg = null;
   function applyHash() {
-    const h = location.hash.replace(/^#/, ''); if (!h) return;
-    if (h === 'settings') { S.tab = 'tips'; save(); return; }
-    const p = new URLSearchParams(h); let saved = [];
-    if (p.get('token')) { S.settings.proxyToken = p.get('token'); saved.push('合言葉'); }
-    if (p.get('key')) { S.settings.seatsKey = p.get('key'); saved.push('seats.aero の API キー'); }
-    if (saved.length) { S.tab = 'quick'; save(); history.replaceState(null, '', location.pathname + location.search); flashMsg = `${saved.join('と')}をこの端末に保存しました。設定は不要です。そのまま検索できます。`; probeProxy().then(() => render()); }
+    const h = location.hash.slice(1);
+    if (/[?&](?:key|token|api_key)=/i.test(location.search) || /(?:^|&)(?:key|token|api_key)=/i.test(h)) {
+      history.replaceState(null, '', location.pathname);
+      S.tab = 'tips';
+      flashMsg = 'URLに含まれる接続情報は取り込みません。設定画面から入力してください。';
+    } else if (h === 'settings') { S.tab = 'tips'; save(); }
   }
+  app.addEventListener('submit', async e => {
+    if (e.target.id !== 'connectionForm') return;
+    e.preventDefault();
+    S.settings.proxyToken = document.getElementById('proxyToken').value.trim();
+    S.settings.seatsKey = document.getElementById('seatsKey').value.trim();
+    delete S.settings.proxyUrl;
+    LIVE.cache = { out: null, ret: null };
+    proxyInfo = null; save();
+    const button = e.target.querySelector('[type=submit]'); button.disabled = true; button.textContent = '接続を確認中…';
+    await probeProxy(); render();
+    const target = document.getElementById('connectionMsg');
+    if (target) target.innerHTML = msg(apiStatus().ok ? 'ok' : 'err', apiStatus().ok ? '接続できました。「探す」から空席を検索できます。' : apiStatus().label);
+  });
   applyHash();
-  window.addEventListener('hashchange', () => { applyHash(); render(); });
+  window.addEventListener('hashchange', () => { if (location.hash === '#settings' || /(?:key|token|api_key)=/i.test(location.hash)) { applyHash(); render(); } });
   render();
   probeProxy().then(() => render());
   if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) { navigator.serviceWorker.register('./sw.js').catch(() => {}); }
