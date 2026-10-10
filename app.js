@@ -171,7 +171,7 @@
   // 探索グループ: スターアライアンス（ANAマイルで予約可）／ワンワールド（参考）
   const LIVE_GROUPS = {
     star: { label: 'スターアライアンス（ANAマイル）', carriers: () => D.liveCarriers, ana: true },
-    ow: { label: '参考: ワンワールド（ANAマイルでは予約不可）', carriers: () => D.liveCarriersOW || [], ana: false }
+    ow: { label: '参考: ワンワールド', carriers: () => D.liveCarriersOW || [], ana: false }
   };
   // 全区間・全社・全クラスをまとめて取得する。往路 2 区間・復路 2 区間に加え、現地ハブへ乗り継ぐ 3 区間用に「玄関→現地ハブ」を往復 1 回ずつ（最大 6 回＋ページ送り）
   async function fetchLegs(cabins, withOW, log) {
@@ -597,13 +597,23 @@
     const R = LIVE.results;
     const w = S.settings.window == null ? 6 : S.settings.window;
     let h = `${proxyInfo && proxyInfo.mock ? msg('warn', '動作確認用のサンプルデータです。実際の空席ではありません。') : ''}<div class="card"><h2>空席を探す <span class="muted" style="font-weight:400;font-size:12px">seats.aero のデータ・便名/時刻/残席つき</span></h2>
-      <p class="help muted">ANA 直行便を先に調べ、次にスターアライアンス各社とベトナム航空のハブ経由を組みます。さらに「日本→地域の玄関ハブ（ANA 直行や提携長距離便）→現地の提携会社で目的地へ」という会社をまたぐ乗継（現地ハブを挟む 3 区間を含む。海外乗継 2 回まで）も組みます。希望日の前後${esc(String(w))}日、同じハブで 1.5〜72 時間（24 時間超は★）でつながり、<b>${esc(String(paxN()))}人分の席がある</b>組合せだけを出します。往路・復路の「○ 3日」は候補のある出発日の数、「燃油」は ANA 便は公式表（1区間×往復）、他社便は有無と実例ベースの目安です。各便の「seats.aero」リンクでその日・その区間を seats.aero 上で開けます。全社・全クラスをまとめて問い合わせるので、1 回の探索で使う API は往復 4〜6 回（片道 2〜3 回。件数が多いとページ送りで増える）です。上限は 1 日 1,000 回（UTC 0 時＝日本時間 朝 9 時リセット）で、前後の日数を広げても回数は変わりません。往路か復路の日付だけ変えて再検索すると、変えていない側は前回の取得結果（6 時間以内）を再利用するので API はその側の分だけで済みます。</p>
+      <p class="help muted">ANA 直行便を先に調べ、次にスターアライアンス各社とベトナム航空のハブ経由を組みます。さらに「日本→地域の玄関ハブ（ANA 直行や提携長距離便）→現地の提携会社で目的地へ」という会社をまたぐ乗継（現地ハブを挟む 3 区間を含む。海外乗継 2 回まで）も組みます。希望日の前後${esc(String(w))}日、同じハブで 1.5〜72 時間（24 時間超は★）でつながり、<b>${esc(String(paxN()))}人分の席がある</b>組合せだけを出します。往路・復路の「○ 3日」は候補のある出発日の数、「燃油」は ANA 便は公式表（1区間×往復）、他社便は有無と実例ベースの目安です。各便の「seats.aero」リンクでその日・その区間を seats.aero 上で開けます。全社・全クラスをまとめて問い合わせるので、1 回の探索で使う API は往復 4〜6 回（片道 2〜3 回。件数が多いとページ送りで増える）です。上限は 1 日 1,000 回（UTC 0 時＝日本時間 朝 9 時リセット）です。往路か復路の日付だけ変えて再検索すると、変えていない側は前回の取得結果（6 時間以内）を再利用するので API はその側の分だけで済みます。</p>
       <div class="row chks">
         ${S.cabin === 'Y' ? `<span class="muted" style="font-size:12px">エコノミーで探します（上位クラスの再探索はありません）</span>` : `<label><input type="checkbox" data-k="settings.liveFallbackY" ${S.settings.liveFallbackY !== false ? 'checked' : ''}> ${esc(CABINS[S.cabin])}が無ければエコノミーも探す</label>`}
-        <label><input type="checkbox" data-k="settings.liveOW" ${S.settings.liveOW ? 'checked' : ''}> 参考: ワンワールド系も見る（ANAマイルでは予約不可）</label>
-        <label><input type="checkbox" data-k="settings.liveFuelSaver" ${S.settings.liveFuelSaver ? 'checked' : ''}> 燃油サーチャージを減らす（燃油の目安が安い順に並べる）</label>
-        <label><input type="checkbox" data-k="settings.liveSure" ${S.settings.liveSure ? 'checked' : ''}> 取れそうな便だけで組む（3 日以上前のデータと会員枠のみの便を除外し、取れそう順に並べる）</label>
-        <label>希望日の前後 <input type="number" min="0" max="14" data-k="settings.window" value="${esc(String(w))}" style="width:56px"> 日<span class="muted">（広げても API 回数は同じ）</span></label>
+        <label><input type="checkbox" data-k="settings.liveOW" ${S.settings.liveOW ? 'checked' : ''}> 参考: ワンワールド系も見る</label>
+        <label><input type="checkbox" data-k="settings.liveFuelSaver" ${S.settings.liveFuelSaver ? 'checked' : ''}> 燃油サーチャージを減らす</label>
+        <label><input type="checkbox" data-k="settings.liveSure" ${S.settings.liveSure ? 'checked' : ''}> 取れそうな便だけで組む</label>
+        <label>希望日の前後 <input type="number" min="0" max="14" data-k="settings.window" value="${esc(String(w))}" style="width:56px"> 日</label>
+      </div>
+      <div class="help option-help">
+        <h3>検索オプションの使い方</h3>
+        <dl>
+          ${S.cabin !== 'Y' ? `<dt>${esc(CABINS[S.cabin])}が無ければエコノミーも探す</dt><dd>希望クラスの候補が見つからない場合、候補のない往路・復路だけエコノミーでも探します。片方に希望クラスの空席があれば、その候補は残します。日程を優先したいときに便利です。</dd>` : ''}
+          <dt>参考: ワンワールド系も見る</dt><dd>JAL直行便や、カタール航空・フィンエアー・キャセイパシフィックなどの乗り継ぎ候補も別枠で表示します。他のマイレージも使える場合に、行き方や空席を比較できます。</dd>
+          <dt>燃油サーチャージを減らす</dt><dd>便ごとの燃油サーチャージを見積もり、目安が安い候補を優先して並べます。乗り継ぎ回数や希望日への近さよりも燃油の安さを優先します。税金・空港使用料を含む総額ではないため、支払額は予約画面で確認してください。</dd>
+          <dt>取れそうな便だけで組む</dt><dd>最終確認から72時間を超えた便と、運航会社の会員向けの枠しか確認できない便を除外します。そのうえで、データの新しさ・提携枠の有無・残席の余裕・複数プログラムへの掲載状況から候補を並べます。予約の成功を保証するものではなく、候補が少なければオフにして探し直せます。</dd>
+        </dl>
+        <p class="muted">「燃油サーチャージを減らす」と「取れそうな便だけで組む」を両方オンにすると、候補を絞ったうえで燃油の安さを優先し、同程度なら取れそうな順に表示します。</p>
       </div>
       <div class="row"><button class="btn primary" data-act="livesearch" ${apiStatus().ok && LIVE.status !== 'running' ? '' : 'disabled'}>${LIVE.status === 'running' ? `探索中… ${LIVE.calls}回` : '空席を探す'}</button>${LIVE.status === 'done' ? `<span class="muted">完了・API ${LIVE.calls}回${LIVE.reused.length ? `（${LIVE.reused.map(s => SIDE_LABEL[s]).join('・')}は前回の結果を再利用）` : ''}</span>${LIVE.reused.length ? `<button class="btn small" data-act="liverefresh">全部取り直す</button>` : ''}` : ''}${!apiStatus().ok ? `<span class="muted">${esc(apiStatus().label)}</span>` : ''}${apiStatus().ok ? usageHtml() : ''}</div>`;
     if (LIVE.status === 'error') h += msg('err', LIVE.msg);
