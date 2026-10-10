@@ -514,7 +514,7 @@
     const a = quickAnalysis(g.cabin); const G = LIVE_GROUPS[g.alliance]; const hasOut = g.sides.includes('out'), hasRet = g.sides.includes('ret');
     const ok = () => `<span class="mark ok">○</span>`, ng = `<span class="mark ng">×</span>`, na = `<span class="mark na">—</span>`;
     const days = arr => uniq(arr.map(x => (x.legs ? x.legs[0].date : x.date))).length; // 候補のある出発日の数
-    const cell = (has, arr) => (has ? (arr.length ? `${ok()}${days(arr)}日に候補<span class="muted" style="font-weight:400;font-size:11px">（${arr.length}通り）</span>` : ng) : na);
+    const cell = (has, arr) => (has ? (arr.length ? `${ok()}候補日 ${days(arr)}<span class="muted" style="font-weight:400;font-size:11px">（${arr.length}通り）</span>` : ng) : na);
     const fuelAsOf = (charts().anaFuel || D.anaFuel || {}).asOf || '';
     const fuelCell = c => {
       if (!G.ana) return '—';
@@ -552,7 +552,7 @@
     groupSummary(g).forEach(s => { h += msg(s.ok ? 'ok' : 'warn', s.t); });
     if (sureMode() && g.partners.some(p => p.outC.length || p.retC.length)) h += `<div class="msg info">取れそう度モード: 3 日以上前のデータの便と、運航会社の会員枠にしか出ていない便を除いてから乗継を組んでいます（要約の「空きなし」もその前提）。残った候補は「最終確認の新しさ」「提携枠に出ているか」「残席の余裕」「複数プログラムに出ているか」を点数化し、いちばん弱い便で評価して高い順に並べています。◎＝全便が提携枠で 24 時間以内に確認、○＝要確認の便あり、△＝会員枠のみの便か 3 日以上前のデータ。${fuelSaver() ? '燃油節約モードも ON のため、燃油が安い順の中で取れそうな順になります。' : ''}</div>`;
     if (fuelSaver() && g.partners.some(p => p.outC.length || p.retC.length)) h += `<div class="msg info">燃油節約モード: 各候補に燃油の目安（運航会社の燃油設定と区間から見積もり。ANA 便と UA の日本発着区間は ANA 公式表、SQ・VN・NZ・コパ・アビアンカ・エチオピアは 0 円、その他は会社ごとの係数）を付け、安い順に並べています。正確な額は ANA サイトの「税金・料金等」で確認してください。</div>`;
-    h += `<table class="sum" style="margin-top:6px"><thead><tr><th>航空会社</th><th>往路 <span class="muted" style="font-weight:400">候補のある日数（往路ありを先に）</span></th><th>復路 <span class="muted" style="font-weight:400">候補のある日数</span></th><th>${G.ana ? 'ANAマイル（往復参考）' : 'JALマイル'}</th><th>燃油</th><th></th></tr></thead><tbody>`;
+    h += `<table class="sum" style="margin-top:6px"><thead><tr><th>航空会社</th><th>往路 <span class="muted" style="font-weight:400">候補日の数（往路ありを先に）</span></th><th>復路 <span class="muted" style="font-weight:400">候補日の数</span></th><th>${G.ana ? 'ANAマイル（往復参考）' : 'JALマイル'}</th><th>燃油</th><th></th></tr></thead><tbody>`;
     if (g.direct) {
       const o = g.direct.out.length, r = g.direct.ret.length;
       h += `<tr class="${(o || r) ? 'full' : ''}"><td><b>${esc(cname(g.direct.cfg.c))} 直行</b></td><td>${cell(hasOut, g.direct.out)}</td><td>${cell(hasRet, g.direct.ret)}</td><td>${milesCell(true)}</td><td>${fuelCell(g.direct.cfg.c)}</td><td>${(o || r) ? `<a href="#live-${gi}-direct" class="muted">詳細</a>` : ''}</td></tr>`;
