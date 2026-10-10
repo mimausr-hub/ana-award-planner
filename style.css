@@ -140,7 +140,7 @@ footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px
 @media (max-width: 600px) { .cand { grid-template-columns: 1fr; } .big { font-size: 24px; } }
 
 table.sum td:last-child { white-space: nowrap; }
-@media (max-width: 600px) { table.sum th:nth-child(4), table.sum td:nth-child(4), table.sum th:nth-child(5), table.sum td:nth-child(5) { display: none; } .status-grid .big { font-size: 20px; } }
+@media (max-width: 600px) { .status-grid .big { font-size: 20px; } }
 .chks { gap: 6px 18px; } .chks label { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; } .chks input { width: auto; margin: 0; }
 .live-h { font-size: 15px; margin: 16px 0 6px; }
 .leg .ext { font-size: 11px; color: var(--primary-strong); text-decoration: none; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; } .leg .ext:hover { background: var(--primary-soft); }
@@ -164,7 +164,7 @@ table.legs .age { font-size: 11px; color: var(--muted); white-space: nowrap; } t
 table.legs .ext { font-size: 11px; color: var(--primary-strong); text-decoration: none; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; white-space: nowrap; } table.legs .ext:hover { background: var(--primary-soft); }
 table.legs tr.combo-start td { border-top: 2px solid var(--border); }
 table.legs tr.gaprow td { font-size: 12px; color: var(--muted); padding: 2px 6px 8px; } table.legs tr.gaprow td.stop { color: var(--warn); font-weight: 700; }
-@media (max-width: 700px) { table.legs th:nth-child(6), table.legs td:nth-child(6), table.legs th:nth-child(8), table.legs td:nth-child(8) { display: none; } table.legs { font-size: 12px; } }
+
 table.legs tr.inputrow td { color: var(--text); background: var(--surface-soft); font-size: 12px; }
 .fuelest { color: var(--warn); font-weight: 700; } .fuelest.zero { color: var(--ok); }
 /* result groups: clear separation by cabin */
@@ -215,3 +215,45 @@ footer a { color: var(--primary-strong); }
 .option-help h3 { margin-top: 0; }
 .option-help dt { font-size: 13px; font-weight: 700; margin-top: 12px; }
 .option-help dd { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.8; }
+/* ===== スマホ幅（700px 以下）: 表をカードに組み替える ===== */
+@media (max-width: 700px) {
+  /* 集計表: 1 社 = 1 枚のカード */
+  table.sum, table.sum tbody, table.sum tr, table.sum td { display: block; width: 100%; box-sizing: border-box; }
+  table.sum thead { display: none; }
+  table.sum tr { border: 1px solid var(--border); border-radius: 12px; margin: 8px 0; padding: 8px 12px; background: var(--surface); }
+  table.sum tr.full { border-color: var(--ok); }
+  table.sum td { border: 0; padding: 3px 0; background: transparent !important; white-space: normal; font-weight: 400; }
+  table.sum td:nth-child(1) { font-weight: 700; font-size: 15px; padding-bottom: 6px; border-bottom: 1px dashed var(--border); margin-bottom: 4px; }
+  table.sum td:nth-child(2)::before { content: "往路　"; color: var(--primary-strong); font-weight: 700; font-size: 12px; }
+  table.sum td:nth-child(3)::before { content: "復路　"; color: #c2410c; font-weight: 700; font-size: 12px; }
+  table.sum td:nth-child(4)::before { content: "マイル　"; color: var(--muted); font-size: 12px; }
+  table.sum td:nth-child(5)::before { content: "燃油　"; color: var(--muted); font-size: 12px; }
+  table.sum td:nth-child(2), table.sum td:nth-child(3) { font-weight: 700; }
+  table.sum td:nth-child(2) .jalnote, table.sum td:nth-child(3) .jalnote, table.sum td:nth-child(2) .grade, table.sum td:nth-child(3) .grade { display: block; margin: 0 0 2px 3.2em; font-weight: 400; }
+  table.sum td:nth-child(6) { padding-top: 6px; } table.sum td:nth-child(6):empty { display: none; }
+  table.sum td:nth-child(6) a { display: inline-block; border: 1px solid var(--border); border-radius: 999px; padding: 2px 12px; text-decoration: none; }
+  /* 便の表: 1 便 = 1 枚のカード（日付・便名 / 出発 → 到着 / 残席・機材 / 在庫 / 最終確認・リンク） */
+  table.legs, table.legs tbody { display: block; width: 100%; }
+  table.legs thead { display: none; }
+  table.legs tr { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; padding: 8px 10px; border-bottom: 1px solid var(--border); align-items: baseline; }
+  table.legs td { display: block; border: 0; padding: 0; white-space: normal; }
+  table.legs td.d { grid-column: 1; font-size: 12px; }
+  table.legs td.fn { grid-column: 2; text-align: right; font-size: 15px; }
+  table.legs td:nth-child(3) { grid-column: 1; } table.legs td:nth-child(4) { grid-column: 2; }
+  table.legs td:nth-child(3) .t, table.legs td:nth-child(4) .t { font-size: 16px; }
+  table.legs td:nth-child(4)::before { content: "→ "; color: var(--muted); }
+  table.legs td.seat { grid-column: 1; } table.legs td.ac { grid-column: 2; text-align: right; }
+  table.legs td:nth-child(7) { grid-column: 1 / -1; } table.legs td:nth-child(7) .srcs { white-space: normal; display: inline-block; }
+  table.legs td:nth-child(8) { grid-column: 1; } table.legs td:nth-child(9) { grid-column: 2; text-align: right; }
+  table.legs tr.combo-start { border-top: 3px solid var(--border); margin-top: 6px; }
+  table.legs tr.gaprow, table.legs tr.inputrow { display: block; padding: 6px 10px; }
+  table.legs tr.gaprow td, table.legs tr.inputrow td { display: block; }
+  table.legs tr.inputrow td { line-height: 1.6; }
+  /* そのほか */
+  .sidebox { padding-left: 8px; }
+  .grp-body { padding: 8px 8px 10px; } .grp-head { padding: 8px 10px; }
+  .chks { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .usage { display: block; width: 100%; margin-top: 4px; }
+  .card { padding: 12px; }
+  .progress { max-height: 100px; }
+}
