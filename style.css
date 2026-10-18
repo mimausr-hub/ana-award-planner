@@ -257,3 +257,15 @@ footer a { color: var(--primary-strong); }
   .card { padding: 12px; }
   .progress { max-height: 100px; }
 }
+
+/* Evidence stays legible alongside the booking-search hints. */
+table.legs .srcs { white-space: normal; max-width: 200px; }
+.evidence { font-size: 11px; margin-top: 5px; line-height: 1.6; }
+.evidence summary { cursor: pointer; color: var(--primary-strong); }
+.candidate-comment { border-left: 3px solid var(--primary); padding: 7px 10px; line-height: 1.7; color: var(--text); background: var(--surface-soft); }
+.search-guide summary { cursor: pointer; color: var(--primary-strong); }
+.search-guide ol { padding-left: 24px; line-height: 1.8; }
+.search-guide li { margin: 10px 0; }
+.search-guide p { line-height: 1.7; }
+.source-links { font-size: 12px; }
+table.sum td .grade { white-space: normal; max-width: 260px; }

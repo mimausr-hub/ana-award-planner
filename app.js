@@ -1,6 +1,7 @@
 (function () {
   'use strict';
   const D = window.AWARD_DATA;
+  const E = window.AWARD_EVIDENCE;
   const LS = 'aap.v1';
   const cityMap = {};
   D.cities.forEach(c => { cityMap[c.code] = c; });
@@ -35,17 +36,19 @@
   const n = c => (cityMap[c] ? cityMap[c].name : c || '—');
   const fmt = v => (v == null ? '未登録' : Number(v).toLocaleString('ja-JP'));
   const uniq = a => Array.from(new Set(a));
-  const charts = () => Object.assign({ partnerChart: D.partnerChart, partnerCityOverride: D.partnerCityOverride, anaChart: D.anaChart, anaSeasons: D.anaSeasons, anaFuel: D.anaFuel, jalChart: D.jalChart }, S.chartOverride || {});
+  const charts = () => Object.assign({ rulesVersion: 2, partnerChart: D.partnerChart, partnerCityOverride: D.partnerCityOverride, partnerZoneChart: D.partnerZoneChart, anaChart: D.anaChart, anaSeasons: D.anaSeasons, anaFuel: D.anaFuel, jalChart: D.jalChart }, S.chartOverride && S.chartOverride.rulesVersion === 2 ? S.chartOverride : {});
   // ANA 便の燃油（1区間・円）。都市別の例外 → ゾーン別
   const anaFuelPerSector = dest => { const f = charts().anaFuel || D.anaFuel; if (!f || !dest) return null; const v = (f.cityOverride || {})[dest]; if (v != null) return v; const z = zone(dest); return z != null && f.perSector[z] != null ? f.perSector[z] : null; };
   // ---------- season ----------
   const SEASON_NAME = { L: 'ロー', R: 'レギュラー', H: 'ハイ' };
-  function seasonOf(iso) {
-    if (!iso) return null; const md = iso.slice(5); const ch = charts().anaSeasons || D.anaSeasons;
-    const inR = ([a, b]) => (a <= b ? (md >= a && md <= b) : (md >= a || md <= b));
-    if ((ch.H || []).some(inR)) return 'H'; if ((ch.L || []).some(inR)) return 'L'; return 'R';
+  function seasonOf(iso, dest = S.q.dest) {
+    if (!iso) return null;
+    const z = zone(dest), group = [2, 3, 4].includes(z) ? 'asia' : [6, 7].includes(z) ? 'west' : [5, 10].includes(z) ? 'pacific' : null;
+    const year = (charts().anaSeasons[group] || {})[iso.slice(0, 4)];
+    if (!year) return null;
+    return ['L', 'R', 'H'].find(k => (year[k] || []).some(([a, b]) => iso >= a && iso <= b)) || null;
   }
-  const seasonTag = iso => { const s = seasonOf(iso); return s ? `<span class="season ${s}">${SEASON_NAME[s]}</span>` : ''; };
+  const seasonTag = iso => { const s = seasonOf(iso); return s ? `<span class="season ${s}">${SEASON_NAME[s]}</span>` : '<span class="muted">シーズン未登録</span>'; };
 
   // ---------- UI pieces ----------
   function citySelect(k, value, opts) {
@@ -79,16 +82,12 @@
     const sDep = seasonOf(dep), sRet = seasonOf(ret); const idx = { L: 0, R: 1, H: 2 };
     const anaArr = ch.anaChart[dz] && ch.anaChart[dz][cabin];
     let anaMiles = null, anaNote = '';
-    if (anaArr) {
-      if (sDep && sRet) {
-        const a = anaArr[idx[sDep]], b = anaArr[idx[sRet]];
-        if (a != null && b != null) { anaMiles = (a + b) / 2; if (sDep !== sRet) anaNote = '往路と復路でシーズンが異なるため、それぞれの往復マイルの半分を合算'; }
-        else if (a != null) { anaMiles = a; anaNote = `帰国日（${SEASON_NAME[sRet]}）のマイル数が未登録のため往路シーズン基準の概算`; }
-        else if (b != null) { anaMiles = b; anaNote = `出発日（${SEASON_NAME[sDep]}）のマイル数が未登録のため帰国シーズン基準の概算`; }
-      } else if (sDep) anaMiles = anaArr[idx[sDep]];
-    }
-    const pz = ch.partnerChart[dz]; let pMiles = pz ? pz[cabin] : null;
-    const ov = ch.partnerCityOverride && ch.partnerCityOverride[q.dest]; if (ov && ov[cabin] != null) pMiles = ov[cabin];
+    if (anaArr && sDep && (!ret || sRet)) {
+      const a = anaArr[idx[sDep]], b = ret ? anaArr[idx[sRet]] : 0;
+      if (a != null && b != null) anaMiles = (a + b) / 2;
+      anaNote = ret ? '各方向の搭乗日・シーズンで計算' : '片道の通常必要マイル';
+    } else anaNote = 'この地域・年度・クラスの公式値が未登録';
+    const pz = ch.partnerChart[dz]; let pMiles = pz && pz[cabin] != null ? pz[cabin] / (ret ? 1 : 2) : null;
     const fromOrigin = directCarriers(q.origin, q.dest);
     const anaJP = jpWithDirect('NH', q.dest);
     const others = Object.keys(DIRECTS).filter(c => c !== 'NH' && jpWithDirect(c, q.dest).length).map(c => ({ c, jps: jpWithDirect(c, q.dest) }));
@@ -102,27 +101,10 @@
   const cityOfAp = a => D.hubCity[a] || cityOfAirport(a);
   const tmin = iso => { const m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)/.exec(iso || ''); return m ? Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5]) / 60000 : null; };
   const paxN = () => Math.max(1, Number(S.pax || 1));
-  const enough = l => !l.seats || l.seats >= paxN(); // 残席 0 は「席数不明」なので通す
-  const shortLegs = legs => legs.filter(l => l.seats && l.seats < paxN());
+  const enough = l => l.seats == null ? !!S.settings.liveUnknown && !sureMode() : l.seats >= paxN();
+  const shortLegs = legs => legs.filter(l => !enough(l));
   const SIDE_LABEL = { out: '往路', ret: '復路' };
-  const CABIN_OF = { economy: 'Y', premium: 'PY', business: 'C', first: 'F' };
-  function tripsFrom(data) {
-    const out = []; const seen = new Map();
-    (data || []).forEach(it => {
-      const r = it.Route || {}; const src = it.Source || '';
-      (it.AvailabilityTrips || []).forEach(t => {
-        if ((t.Stops || 0) !== 0) return; const cabin = CABIN_OF[t.Cabin]; if (!cabin) return;
-        const fn = t.FlightNumbers || '';
-        const k = `${it.Date}|${r.OriginAirport}|${r.DestinationAirport}|${fn}|${cabin}`;
-        const seats = Number(t.RemainingSeats || 0);
-        const prev = seen.get(k);
-        if (prev) { if (src && !prev.srcs.includes(src)) prev.srcs.push(src); if (seats > prev.seats) prev.seats = seats; const u = t.UpdatedAt || it.UpdatedAt || ''; if (u > (prev.upd || '')) prev.upd = u; return; } // 同じ便が複数プログラムに出ていればまとめる（鮮度は新しい方）
-        const leg = { date: it.Date, o: r.OriginAirport, d: r.DestinationAirport, fn, cabin, dep: t.DepartsAt || '', arr: t.ArrivesAt || '', seats, ac: (t.Aircraft || []).join('/'), srcs: src ? [src] : [], dist: Number(r.Distance || 0), upd: t.UpdatedAt || it.UpdatedAt || '' };
-        seen.set(k, leg); out.push(leg);
-      });
-    });
-    return out.sort((a, b) => a.date.localeCompare(b.date) || a.dep.localeCompare(b.dep));
-  }
+    const tripsFrom = data => E.normalize(data);
   // 本日（UTC 暦日）の API 使用回数をこの端末で数える。seats.aero の上限は 1 日 1,000 回・UTC 0 時（日本時間 朝 9 時）リセット
   const API_LIMIT = 1000;
   const utcDay = () => new Date().toISOString().slice(0, 10);
@@ -144,28 +126,28 @@
     }
     return tripsFrom(data);
   }
-  // 人数分の席がある便だけで乗継を組む
+  // 人数分の席を他社で観測した便だけで乗継を組む
   function pairLegs(l1, l2, maxH) {
     const out = [];
     l1.filter(enough).forEach(a => l2.filter(enough).forEach(b => {
-      if (cityOfAp(a.d) !== cityOfAp(b.o)) return;
+      if (a.d !== b.o) return;
       const ta = tmin(a.arr), tb = tmin(b.dep); if (ta == null || tb == null) return;
       const gap = (tb - ta) / 60; if (gap < 1.5 || gap > maxH) return;
-      out.push({ legs: [a, b], gapH: gap, stop: gap > 24, seats: Math.min(a.seats || 9, b.seats || 9) });
+      out.push({ legs: [a, b], gapH: gap, stop: gap > 24, seats: a.seats == null || b.seats == null ? null : Math.min(a.seats, b.seats) });
     }));
     return out;
   }
   // 並び順: 希望の日本側都市（往路=出発地、復路=帰着地）→ 24時間以内の乗継 → 希望日に近い → 席数
-  let rankOw = false; // rankCombos 実行中のグループがワンワールドかどうか（取れそう度の判定に使う）
+  let rankOw = false; // rankCombos 実行中のグループがワンワールドかどうか（確認優先度の判定に使う）
   const rankCombos = (combos, wantDate, prefCity, side) => combos.sort((x, y) => {
     const lastX = x.legs[x.legs.length - 1], lastY = y.legs[y.legs.length - 1];
     const px = (side === 'ret' ? cityOfAp(lastX.d) : cityOfAp(x.legs[0].o)) === prefCity ? 0 : 1;
     const py = (side === 'ret' ? cityOfAp(lastY.d) : cityOfAp(y.legs[0].o)) === prefCity ? 0 : 1;
     const dx = Math.abs(tmin(x.legs[0].date + 'T00:00') - tmin(wantDate + 'T00:00')), dy = Math.abs(tmin(y.legs[0].date + 'T00:00') - tmin(wantDate + 'T00:00'));
-    const ax = Math.max(...x.legs.map(l => ageOf(l) || 0)), ay = Math.max(...y.legs.map(l => ageOf(l) || 0));
+    const ax = Math.max(...x.legs.map(l => ageOf(l) ?? Infinity)), ay = Math.max(...y.legs.map(l => ageOf(l) ?? Infinity));
     const distOf = c => c.legs.reduce((t, l) => t + (l.dist || 0), 0);
     const fz = fuelSaver() ? (fuelOf(x) - fuelOf(y)) : 0; // 燃油節約モード: 燃油の目安が安い順を最優先
-    const sz = sureMode() ? (confidence(y, rankOw).score - confidence(x, rankOw).score) : 0; // 取れそう度モード: 点数の高い順
+    const sz = sureMode() ? (confidence(y, rankOw).score - confidence(x, rankOw).score) : 0; // 根拠を絞るモード: 点数の高い順
     return fz || sz || (px - py) || (x.stop - y.stop) || (x.legs.length - y.legs.length) || (dx - dy) || (distOf(x) - distOf(y)) || (y.seats - x.seats) || (ax - ay);
   });
   // 探索グループ: スターアライアンス（ANAマイルで予約可）／ワンワールド（参考）
@@ -179,7 +161,7 @@
     const w = Number(S.settings.window == null ? 6 : S.settings.window); const dz = zone(q.dest);
     const dAps = airportsOf(q.dest), oAps = airportsOf(q.origin), fAps = airportsOf(q.final);
     const cfgs = [...D.liveCarriers, ...(withOW ? (D.liveCarriersOW || []) : [])];
-    const jpAll = uniq([...oAps, ...fAps, ...cfgs.flatMap(c => c.jp)]);
+    const jpAll = uniq([...oAps, ...fAps]); // 選んだ発着都市のみ。国内線は自動追加しない。
     const gateways = (D.gatewaysByZone || {})[dz] || [];
     const regional = uniq(cfgs.filter(c => !c.jp.length && c.zones.includes(dz)).flatMap(c => c.hubs)).filter(h => !dAps.includes(h)); // 日本便の無い現地会社のハブ
     const hubsAll = uniq([...cfgs.flatMap(c => c.hubs), ...gateways]).filter(h => !dAps.includes(h));
@@ -196,18 +178,18 @@
     let out = LIVE.cache.out;
     if (fresh(out) && out.key === keyOut) { LIVE.reused.push('out'); log(`往路: 前回（${Math.round((Date.now() - out.at) / 60000)} 分前）の取得結果を再利用（API 0 回）`); }
     else {
-      const L1 = await legSearch(jpAll, uniq([...hubsAll, ...dAps]), addDays(dep, -w), addDays(dep, w), cab, sources, step('日本→ハブ・直行'));      // 日本→ハブ ＋ 日本→目的地（直行）
-      const L2 = await legSearch(hubsAll, dAps, addDays(dep, -w), addDays(dep, w + 3), cab, sources, step('ハブ→目的地'));                       // ハブ→目的地
-      const L2b = regional.length ? await legSearch(gw, regional, addDays(dep, -w), addDays(dep, w + 3), cab, sources, step('玄関ハブ→現地ハブ')) : [];
+      const L1 = await legSearch(jpAll, uniq([...hubsAll, ...dAps]), [todayISO(), addDays(dep, -w)].sort().pop(), addDays(dep, w), cab, sources, step('日本→ハブ・直行'));      // 日本→ハブ ＋ 日本→目的地（直行）
+      const L2 = await legSearch(hubsAll, dAps, [todayISO(), addDays(dep, -w)].sort().pop(), addDays(dep, w + 3), cab, sources, step('ハブ→目的地'));                       // ハブ→目的地
+      const L2b = regional.length ? await legSearch(gw, regional, [todayISO(), addDays(dep, -w)].sort().pop(), addDays(dep, w + 3), cab, sources, step('玄関ハブ→現地ハブ')) : [];
       out = LIVE.cache.out = { key: keyOut, at: Date.now(), L1, L2, L2b };
     }
     let rt = LIVE.cache.ret;
     if (!ret) rt = { L3: [], L3b: [], L4: [] };
     else if (fresh(rt) && rt.key === keyRet) { LIVE.reused.push('ret'); log(`復路: 前回（${Math.round((Date.now() - rt.at) / 60000)} 分前）の取得結果を再利用（API 0 回）`); }
     else {
-      const L3 = await legSearch(dAps, hubsAll, addDays(ret, -w), addDays(ret, w), cab, sources, step('目的地→ハブ'));                               // 目的地→ハブ
-      const L3b = regional.length ? await legSearch(regional, gw, addDays(ret, -w), addDays(ret, w + 3), cab, sources, step('現地ハブ→玄関ハブ')) : [];
-      const L4 = await legSearch(uniq([...hubsAll, ...dAps]), jpAll, addDays(ret, -w), addDays(ret, w + 3), cab, sources, step('ハブ→日本・直行'));  // ハブ→日本 ＋ 目的地→日本（直行）
+      const L3 = await legSearch(dAps, hubsAll, [todayISO(), addDays(ret, -w)].sort().pop(), addDays(ret, w), cab, sources, step('目的地→ハブ'));                               // 目的地→ハブ
+      const L3b = regional.length ? await legSearch(regional, gw, [todayISO(), addDays(ret, -w)].sort().pop(), addDays(ret, w + 3), cab, sources, step('現地ハブ→玄関ハブ')) : [];
+      const L4 = await legSearch(uniq([...hubsAll, ...dAps]), jpAll, [todayISO(), addDays(ret, -w)].sort().pop(), addDays(ret, w + 3), cab, sources, step('ハブ→日本・直行'));  // ハブ→日本 ＋ 目的地→日本（直行）
       rt = LIVE.cache.ret = { key: keyRet, at: Date.now(), L3, L3b, L4 };
     }
     return { L1: out.L1, L2: out.L2, L2b: out.L2b, L3: rt.L3, L3b: rt.L3b, L4: rt.L4, w, dep, ret, dAps, oAps, fAps, hubsAll, regional, gateways };
@@ -232,28 +214,24 @@
     return Math.round(((l.dist || 0) > 2500 ? 25000 : 8000) * k / 1000) * 1000;
   }
   const fuelOf = c => { if (c._fuel == null) c._fuel = c.legs.reduce((t, l) => t + fuelEstLeg(l), 0); return c._fuel; };
-  // 「取れそう度」: 便ごとに ①最終確認の新しさ ②提携枠に出ているか（ANA/JAL 可の見込み） ③残席の余裕 ④複数プログラムに出ているか を点数化し、旅程は最も弱い便で評価
-  const sureMode = () => !!S.settings.liveSure;
-  function legScore(l, ow) {
-    const h = ageOf(l); const fresh = h == null ? 0 : h <= 2 ? 3 : h <= 12 ? 2 : h <= 24 ? 1 : h <= 72 ? 0 : -2;
-    const ch = chanceOf(l, ow).k; const chance = ch === 'ok' ? 3 : ch === 'maybe' ? 1 : -3;
-    const seats = !l.seats ? 0 : l.seats >= paxN() + 2 ? 1 : 0;
-    const progs = (l.srcs || []).length >= 2 ? 1 : 0;
-    return fresh + chance + seats + progs;
-  }
+  // 確認優先度: 同じ提供元の席数・観測時刻と、複数の提携プログラムの一致を評価。成功率ではない。
+  const sureMode = () => S.settings.liveSure !== false;
+  const legScore = (l, ow) => E.assess(l, paxN(), ow).score;
   function confidence(c, ow) {
-    if (c._conf && c._conf.ow === ow) return c._conf;
-    const scores = c.legs.map(l => legScore(l, ow)); const min = Math.min(...scores); const sum = scores.reduce((t, v) => t + v, 0);
-    const worstAge = Math.max(...c.legs.map(l => ageOf(l) || 0)); const anyNg = c.legs.some(l => chanceOf(l, ow).k === 'ng'); const allOk = c.legs.every(l => chanceOf(l, ow).k === 'ok');
-    const grade = anyNg || worstAge > 72 ? '△' : (allOk && worstAge <= 24) ? '◎' : '○';
-    const why = [`最終確認 ${worstAge < 1 ? '1時間以内' : worstAge < 24 ? Math.round(worstAge) + '時間前' : Math.round(worstAge / 24) + '日前'}`, anyNg ? '会員枠のみの便あり' : allOk ? '全便が提携枠' : '要確認の便あり'];
-    c._conf = { ow, score: min * 10 + sum, grade, why: why.join('・') };
-    return c._conf;
+    const evidence = c.legs.map(l => E.assess(l, paxN(), ow));
+    const level = Math.min(...evidence.map(x => x.level));
+    const unknown = evidence.some(x => x.h === null);
+    const worstAge = unknown ? null : Math.max(...evidence.map(x => x.h));
+    const grade = ['参考候補', '優先して照合', '根拠が比較的強い'][level];
+    const why = [worstAge === null ? '観測時刻不明の便あり' : `最古の観測 ${ageText(worstAge)}`,
+      evidence.every(x => x.enough) ? `${paxN()}人分を他社で観測` : '人数分の根拠不足',
+      evidence.some(x => x.conflict) ? '提供元間で席数に差あり' : level === 2 ? '全便で複数の提携プログラムが一致' : '公式予約画面で全区間の照合が必要'];
+    return { level, grade, why: why.join('・'), score: Math.min(...evidence.map(x => x.score)) * 10 + evidence.reduce((n, x) => n + x.score, 0) };
   }
   const fuelSaver = () => !!S.settings.liveFuelSaver;
   // 乗継の時間判定（1.5〜maxH 時間、24 時間超はストップオーバー）
   const gapHours = (a, b) => { const ta = tmin(a.arr), tb = tmin(b.dep); if (ta == null || tb == null) return null; const g = (tb - ta) / 60; return (g < 1.5 || g > 72) ? null : g; };
-  const sameCity = (a, b) => cityOfAp(a.d) === cityOfAp(b.o);
+  const sameCity = (a, b) => a.d === b.o; // 空港移動を自動接続しない
   const opOf = l => (l.fn || '').slice(0, 2);
   // 3 区間（日本→玄関→現地ハブ→目的地 など）。ストップオーバーは 1 回まで
   function tripleLegs(l1, l2, l3) {
@@ -263,7 +241,7 @@
       l3.filter(enough).forEach(c => {
         if (!sameCity(b, c)) return; const g2 = gapHours(b, c); if (g2 == null) return;
         const stops = (g1 > 24) + (g2 > 24); if (stops > 1) return;
-        out.push({ legs: [a, b, c], gaps: [g1, g2], gapH: g1 + g2, stop: stops > 0, seats: Math.min(a.seats || 9, b.seats || 9, c.seats || 9) });
+        out.push({ legs: [a, b, c], gaps: [g1, g2], gapH: g1 + g2, stop: stops > 0, seats: [a, b, c].some(l => l.seats == null) ? null : Math.min(a.seats, b.seats, c.seats) });
       });
     }));
     return out;
@@ -272,11 +250,32 @@
   //  ・乗換地点は、出発地からの必要マイルが目的地より高いゾーンの都市にできない（例: 欧州行きをドーハ経由にはできない）
   //  ・片道旅程では途中降機（24時間超）不可。往復では目的地以外に 1 回まで（往復どちらか）
   //  ・海外乗換は往路・復路各 2 回まで（3 区間までしか作らないので常に範囲内）
+  function anaAllowedLeg(l) {
+    const op = opOf(l);
+    if (op === 'OZ' && l.date > '2026-12-16') return false;
+    if (l.cabin === 'F' && ['LX', 'SQ'].includes(op)) return false;
+    if (l.cabin === 'PY' && op !== 'NH') return false;
+    if (zone(cityOfAp(l.o)) === 1 && zone(cityOfAp(l.d)) === 1 && op !== 'NH') return false;
+    return true;
+  }
   function anaRuleFilter(combos, destCity, oneWay) {
-    const destRank = rankOf(destCity);
+    const dz = zone(destCity), area = z => [5, 6, 9].includes(z) ? 1 : [7, 8].includes(z) ? 2 : 3;
+    const chart = D.partnerZoneChart, miles = (a, b, cabin) => (chart[`${a}-${b}`] || {})[cabin];
     return combos.filter(c => {
-      if (oneWay && c.stop) return false;
-      return c.legs.slice(0, -1).every(l => { const z = zone(cityOfAp(l.d)); return z == null || z === 1 || rankOf(cityOfAp(l.d)) <= destRank; });
+      if ((oneWay && c.stop) || !c.legs.every(anaAllowedLeg)) return false;
+      const ops = uniq(c.legs.map(opOf)); if (ops.includes('VN') && ops.length > 1) return false;
+      const first = cityOfAp(c.legs[0].o), last = cityOfAp(c.legs[c.legs.length - 1].d);
+      const hubs = c.legs.slice(0, -1).map(l => cityOfAp(l.d));
+      if (hubs.includes(first) || hubs.includes(last) || uniq(hubs).length !== hubs.length) return false;
+      if (hubs.filter(h => zone(h) !== 1).length > 2 || hubs.filter(h => zone(h) === 1).length > 1) return false;
+      return hubs.every(h => {
+        const hz = zone(h); if (hz === 1) return true; if (!hz || !dz) return false;
+        // Japan is area 3: prohibit a third area, or either other area on area-3 itineraries.
+        if ((area(dz) === 1 && area(hz) === 2) || (area(dz) === 2 && area(hz) === 1) || (area(dz) === 3 && area(hz) !== 3)) return false;
+        const cabin = c.legs[0].cabin;
+        const total = miles('1-B', dz, cabin), toHub = miles('1-B', hz, cabin), onward = miles(hz, dz, cabin);
+        return total != null && toHub != null && onward != null && toHub <= total && onward <= total;
+      });
     });
   }
   // 取得済みの便を航空会社・ハブごとに振り分けて組合せを作る（API は使わない）
@@ -284,43 +283,45 @@
     const q = S.q; const dz = zone(q.dest); const G = LIVE_GROUPS[alliance];
     const g = { alliance, cabin, sides, direct: null, partners: [] }; rankOw = !G.ana;
     const doOut = sides.includes('out'), doRet = sides.includes('ret') && !!R.ret;
-    // 取れそう度モード: 組合せを作る前に、3 日以上前のデータの便と、運航会社の会員枠にしか出ていない便を除く
+    // 根拠を絞るモード: 組合せを作る前に、3 日以上前のデータの便と、運航会社の会員枠にしか出ていない便を除く
     const SURE_MAX_H = 72;
-    const reliable = l => { if (!sureMode()) return true; const h = ageOf(l); if (h != null && h > SURE_MAX_H) return false; return chanceOf(l, !G.ana).k !== 'ng'; };
+    const reliable = l => { if (!sureMode()) return true; const h = ageOf(l); return h !== null && h <= SURE_MAX_H && l.seats != null && l.seats >= paxN() && l.sharedEvidence; };
     let dropped = 0;
-    const byCab = arr => { const c = arr.filter(l => l.cabin === cabin && (!G.ana || !l.fn.startsWith('OZ') || l.date <= '2026-12-16')); const r = c.filter(reliable); dropped += c.length - r.length; return r; };
+    const byCab = arr => { const c = arr.filter(l => l.date >= todayISO() && l.cabin === cabin && (!G.ana || anaAllowedLeg(l))).map(l => E.select(l, paxN(), !G.ana)); const r = c.filter(reliable); dropped += c.length - r.length; return r; };
     const L1 = byCab(R.L1), L2 = byCab(R.L2), L2b = byCab(R.L2b || []), L3 = byCab(R.L3), L3b = byCab(R.L3b || []), L4 = byCab(R.L4);
-    if (sureMode()) log(`取れそう度モード: ${SURE_MAX_H / 24} 日以上前のデータの便と会員枠のみの便 ${dropped} 便を除外してから組合せを作ります`);
+    if (sureMode()) log(`根拠を絞る: 観測から${SURE_MAX_H}時間超・時刻不明・人数不足/不明・他社提携枠の根拠がない便 ${dropped} 件を除外`);
     const cfgs = G.carriers().filter(cfg => cfg.zones.includes(dz));
     for (const cfg of cfgs) {
       const isC = l => l.fn.startsWith(cfg.c);
-      const jpO = uniq([...R.oAps, ...cfg.jp]), jpF = uniq([...R.fAps, ...cfg.jp]);
+      const jpO = R.oAps, jpF = R.fAps;
       if (!cfg.hubs.length) {
         // 直行便（ANA / JAL）
         const out = doOut ? L1.filter(l => isC(l) && jpO.includes(l.o) && R.dAps.includes(l.d)) : [];
         const rt = doRet ? L4.filter(l => isC(l) && R.dAps.includes(l.o) && jpF.includes(l.d) && l.date <= addDays(R.ret, R.w)) : [];
-        g.direct = { cfg, out: out.filter(enough), ret: rt.filter(enough), shortOut: shortLegs(out).length, shortRet: shortLegs(rt).length };
-        log(`${cname(cfg.c)} 直行: 往路${g.direct.out.length}便 / 復路${g.direct.ret.length}便${g.direct.shortOut + g.direct.shortRet ? `（人数未満 ${g.direct.shortOut + g.direct.shortRet}便）` : ''}`);
+        const rankDirect = (legs, date, city, side) => rankCombos(legs.filter(enough).map(l => ({legs:[l],stop:false,seats:l.seats})),date,city,side).map(c => c.legs[0]);
+        g.direct = { cfg, out: rankDirect(out, R.dep, q.origin, 'out'), ret: rankDirect(rt, R.ret || R.dep, q.final, 'ret'), shortOut: shortLegs(out).length, shortRet: shortLegs(rt).length };
+        log(`${cname(cfg.c)} 直行: 往路${g.direct.out.length}便 / 復路${g.direct.ret.length}便${g.direct.shortOut + g.direct.shortRet ? `（席数不足・不明 ${g.direct.shortOut + g.direct.shortRet}便）` : ''}`);
         continue;
       }
-      if (dz === 5) continue; // ハワイは提携便不可
       if (!cfg.jp.length) continue; // 日本便の無い現地会社は「会社をまたぐ乗継」側で使う
       const l1 = doOut ? L1.filter(l => isC(l) && jpO.includes(l.o) && cfg.hubs.includes(l.d)) : [];
       const l2 = doOut ? L2.filter(l => isC(l) && cfg.hubs.includes(l.o) && R.dAps.includes(l.d)) : [];
       const l3 = doRet ? L3.filter(l => isC(l) && R.dAps.includes(l.o) && cfg.hubs.includes(l.d)) : [];
       const l4 = doRet ? L4.filter(l => isC(l) && cfg.hubs.includes(l.o) && jpF.includes(l.d)) : [];
       const rule = cs => (G.ana ? anaRuleFilter(cs, q.dest, !R.ret) : cs);
-      const outC = doOut ? rankCombos(rule(pairLegs(l1, l2, 72)), R.dep, q.origin, 'out') : [];
-      const retC = doRet ? rankCombos(rule(pairLegs(l3, l4, 72)), R.ret, q.final, 'ret') : [];
+      const single = l => ({ legs: [l], gapH: 0, stop: false, seats: l.seats });
+      const outD = L1.filter(l => isC(l) && jpO.includes(l.o) && R.dAps.includes(l.d) && enough(l)).map(single);
+      const retD = L4.filter(l => isC(l) && R.dAps.includes(l.o) && jpF.includes(l.d) && l.date <= addDays(R.ret || R.dep, R.w) && enough(l)).map(single);
+      const outC = doOut ? rankCombos(rule([...outD, ...pairLegs(l1, l2, 72)]), R.dep, q.origin, 'out') : [];
+      const retC = doRet ? rankCombos(rule([...retD, ...pairLegs(l3, l4, 72)]), R.ret, q.final, 'ret') : [];
       const p = { cfg, l1: l1.filter(enough), l2: l2.filter(enough), l3: l3.filter(enough), l4: l4.filter(enough), shortOut: shortLegs([...l1, ...l2]).length, shortRet: shortLegs([...l3, ...l4]).length, outC, retC };
       g.partners.push(p);
-      log(`${cname(cfg.c)}: 日本→ハブ ${p.l1.length}便 / ハブ→目的地 ${p.l2.length}便 / 目的地→ハブ ${p.l3.length}便 / ハブ→日本 ${p.l4.length}便 → 往路の組合せ ${outC.length}・復路 ${retC.length}${p.shortOut + p.shortRet ? `（人数未満 ${p.shortOut + p.shortRet}便を除外）` : ''}`);
+      log(`${cname(cfg.c)}: 日本→ハブ ${p.l1.length}便 / ハブ→目的地 ${p.l2.length}便 / 目的地→ハブ ${p.l3.length}便 / ハブ→日本 ${p.l4.length}便 → 往路の組合せ ${outC.length}・復路 ${retC.length}${p.shortOut + p.shortRet ? `（席数不足・不明 ${p.shortOut + p.shortRet}便を除外）` : ''}`);
     }
-    if (dz === 5) return g;
     // ---- 会社をまたぐ乗継（同じアライアンス内）。日本→玄関ハブ（ANA 直行や提携長距離便）→現地の提携会社で目的地へ。現地ハブを挟む 3 区間も ----
     const codes = new Set(G.ana ? (D.starCodes || []) : (D.owCodes || []));
     const okOp = l => codes.has(opOf(l)) && opOf(l) !== 'VN'; // ベトナム航空は他社と混在不可
-    const jpO = uniq([...R.oAps, ...cfgs.flatMap(c => c.jp)]), jpF = uniq([...R.fAps, ...cfgs.flatMap(c => c.jp)]);
+    const jpO = R.oAps, jpF = R.fAps;
     const hubs = R.hubsAll, regional = R.regional;
     const mixedOut = [], mixedRet = [];
     if (doOut) {
@@ -347,7 +348,7 @@
     });
     const bestDist = p => Math.min(...[...p.outC.slice(0, 1), ...p.retC.slice(0, 1)].map(c => c.legs.reduce((t, l) => t + (l.dist || 0), 0)), Infinity);
     mixed.sort((x, y) => ((y.outC.length > 0) - (x.outC.length > 0)) || ((y.retC.length > 0) - (x.retC.length > 0)) || (bestDist(x) - bestDist(y)));
-    mixed.splice(8);
+    mixed.splice(8); // 表示上限。全候補の網羅を意味しない。
     mixed.forEach(p => g.partners.push(p));
     if (mixed.length) log(`会社をまたぐ乗継: ${mixed.map(p => `${rowName(p.cfg)} 往路${p.outC.length}・復路${p.retC.length}`).join(' / ')}`);
     else log('会社をまたぐ乗継: 組合せなし');
@@ -357,11 +358,13 @@
   const rowName = cfg => (cfg.mixed ? uniq(cfg.ops).map(cname).join(' → ') : cname(cfg.c));
   // ハブ名の表示（4 つ以上は先頭 3 つ＋ほか）
   const hubLabel = (cfg, sep = '／', p) => {
+    if (p && [...p.outC, ...p.retC].length && [...p.outC, ...p.retC].every(c => c.legs.length === 1)) return '直行';
     if (cfg.mixed && p) { // 会社をまたぐ乗継は、最上位候補の経由地を順番どおりに（例: ロサンゼルス → パナマシティ）
       const best = p.outC[0] || p.retC[0]; if (best) { const path = uniq(best.legs.slice(0, -1).map(l => n(cityOfAp(l.d)))); const others = uniq([...p.outC, ...p.retC].map(c => c.legs.slice(0, -1).map(l => cityOfAp(l.d)).join('>'))).length - 1; return `${path.map(esc).join(' → ')}${others > 0 ? ` ほか${others}通り` : ''}`; }
     }
     const names = uniq(cfg.hubs.map(x => n(cityOfAp(x)))); return names.length > 3 ? `${names.slice(0, 3).map(esc).join(sep)} ほか${names.length - 3}` : names.map(esc).join(sep);
   };
+  const routeLabel = (cfg, sep, p) => { const label = hubLabel(cfg, sep, p); return label === '直行' ? label : label + '経由'; };
   const groupHas = (g, side) => (g.direct && g.direct[side].length > 0) || g.partners.some(p => (side === 'out' ? p.outC : p.retC).length > 0);
   // どこで詰まっているかを 1 行で（ルールのみ）
   function groupSummary(g) {
@@ -371,23 +374,23 @@
       const direct = g.direct && g.direct[side].length ? `${cname(g.direct.cfg.c)} 直行` : '';
       const allNg = combos => combos.length && combos.every(c => c.legs.some(l => chanceOf(l, g.alliance === 'ow').k === 'ng'));
       const withC = g.partners.filter(p => (side === 'out' ? p.outC : p.retC).length);
-      const okP = withC.filter(p => !p.cfg.mixed).map(p => `${rowName(p.cfg)} ${hubLabel(p.cfg, '/', p)}経由${p.cfg.c === 'VN' ? '（参考）' : allNg(side === 'out' ? p.outC : p.retC) ? '（自社会員枠のみ・要確認）' : ''}`);
+      const okP = withC.filter(p => !p.cfg.mixed).map(p => `${rowName(p.cfg)} ${routeLabel(p.cfg, '/', p)}${p.cfg.c === 'VN' ? '（参考）' : allNg(side === 'out' ? p.outC : p.retC) ? '（自社会員枠のみ・要確認）' : ''}`);
       const mixedN = withC.filter(p => p.cfg.mixed).length; if (mixedN) okP.push(`会社をまたぐ乗継 ${mixedN} 通り（表の下の方）`); // 混在は長くなるので件数だけ
       const shortN = (g.direct ? (side === 'out' ? g.direct.shortOut : g.direct.shortRet) : 0) + g.partners.reduce((s, p) => s + (side === 'out' ? p.shortOut : p.shortRet), 0);
-      const tail = shortN ? `（${paxN()}人分に満たない便 ${shortN}件は除外）` : '';
-      if (direct || okP.length) { parts.push({ ok: true, t: `${label}: ${[direct, ...okP].filter(Boolean).join('・')} で組める${tail}` }); return; }
+      const tail = shortN ? `（${paxN()}人分の根拠がない便 ${shortN}件は除外）` : '';
+      if (direct || okP.length) { parts.push({ ok: true, t: `${label}: ${[direct, ...okP].filter(Boolean).join('・')} の候補あり（公式未確認）${tail}` }); return; }
       // 会社ごとに「どの区間が空か」を見て、理由をまとめる
       const jp = p => (side === 'out' ? p.l1 : p.l4), far = p => (side === 'out' ? p.l2 : p.l3);
       const P = g.partners.filter(p => !p.cfg.mixed); const names = arr => arr.map(p => cname(p.cfg.c)).join('・');
-      const A = P.filter(p => !jp(p).length && far(p).length);   // 長距離区間だけ空きなし
-      const B = P.filter(p => jp(p).length && !far(p).length);   // ハブ⇄目的地だけ空きなし
+      const A = P.filter(p => !jp(p).length && far(p).length);   // 長距離区間だけ収録候補なし
+      const B = P.filter(p => jp(p).length && !far(p).length);   // ハブ⇄目的地だけ収録候補なし
       const C = P.filter(p => jp(p).length && far(p).length);    // 両方あるのに乗継がつながらない
       const why = [];
-      if (!P.length) why.push(g.direct ? '直行便に空きなし' : '対象の航空会社がありません');
-      if (A.length) why.push(`日本⇄ハブの長距離区間に空きなし（${names(A)}はハブ⇄目的地側が空いている）`);
-      if (B.length) why.push(`${names(B)}は日本⇄ハブは空いているがハブ⇄目的地に空きなし`);
-      if (C.length) why.push(`${names(C)}は便はあるが同じハブで 1.5〜72 時間の乗継がつながらない`);
-      if (P.length && !why.length) why.push('全区間で空きなし');
+      if (!P.length) why.push(g.direct ? '直行便に収録候補なし' : '対象の航空会社がありません');
+      if (A.length) why.push(`日本⇄ハブの長距離区間に収録候補なし（${names(A)}はハブ⇄目的地側が空いている）`);
+      if (B.length) why.push(`${names(B)}は日本⇄ハブは空いているがハブ⇄目的地に収録候補なし`);
+      if (C.length) why.push(`${names(C)}は便はあるが同じ空港で 1.5〜72 時間の乗継がつながらない`);
+      if (P.length && !why.length) why.push('全区間で収録候補なし');
       parts.push({ ok: false, t: `${label}: 組める候補なし。${why.join('。')}${tail}` });
     });
     return parts;
@@ -447,10 +450,10 @@
   const OW_SHARED = { american: 'AA', british: 'BA', qantas: 'QF', asiamiles: 'CX', finnair: 'AY', qatar: 'QR' };
   function jalChance(l) {
     const srcs = l.srcs || []; const op = (l.fn || '').slice(0, 2);
-    if (srcs.includes('jal')) return { k: 'ok', t: 'JAL可（JAL在庫）' };
+    if (srcs.includes('jal')) return { k: 'ok', t: 'JAL在庫の観測・公式未確認' };
     // JAL 運航便: seats.aero の JAL 在庫は現状データが空（2026-10 時点で全路線 0 件）なので「なし」とは言えない。
     // 提携プログラムに出ている＝JAL が提携枠を開放している便で、JAL 会員は基本マイルか PLUS（追加マイル）で取れる
-    if (op === 'JL') return { k: 'maybe', t: 'JAL便・JALサイトで要確認（PLUS なら取れる見込み）' };
+    if (op === 'JL') return { k: 'maybe', t: 'JAL便・公式要確認（PLUSは別条件）' };
     const shared = srcs.filter(x => OW_SHARED[x] && OW_SHARED[x] !== op).length;
     if (shared >= 2) return { k: 'maybe', t: 'JAL要確認（共通枠の可能性）' };
     if (shared === 1) return { k: 'maybe', t: 'JAL要確認' };
@@ -458,32 +461,31 @@
     if (srcs.some(x => OW_SHARED[x] === op)) return { k: 'ng', t: '自社会員枠のみ・JAL不可の可能性大' };
     return { k: 'maybe', t: 'JAL要確認' };
   }
-  // ANA マイルで取れる見込み（スターアライアンス表用）
-  //  スターアライアンスの提携枠は各社共通なので、運航会社「以外」の提携プログラム（UA/AC/AV）に出ていれば ANA も見える。
-  //  運航会社自身のプログラムにしか出ていない便（例: エアカナダ便が Aeroplan だけ）は会員向けの変動価格枠で、ANA には開放されていない可能性が高い
+  // Other programs are indirect evidence only; ANA inventory is never inferred as confirmed.
   const OWN_STAR = { united: 'UA', aeroplan: 'AC', lifemiles: 'AV' };
   function anaChance(l) {
-    const srcs = l.srcs || []; const op = (l.fn || '').slice(0, 2);
-    if (op === 'NH') return { k: 'ok', t: 'ANA便（会員枠はさらに広い）' };
-    if (op === 'VN') return { k: 'maybe', t: 'ANAの枠とは別・要確認' };
-    const shared = srcs.filter(x => OWN_STAR[x] && OWN_STAR[x] !== op).length;
-    if (shared >= 1) return { k: 'ok', t: 'ANA可の見込み（提携枠）' };
-    if (srcs.some(x => OWN_STAR[x] === op)) return { k: 'ng', t: '自社会員枠のみ・ANA不可の可能性大' };
-    return { k: 'maybe', t: 'ANA要確認' };
+    if (opOf(l) === 'VN') return { k: 'maybe', t: '別提携の在庫・ANA未確認' };
+    if (l.sharedEvidence) return { k: 'ok', t: '他社の提携枠で観測・ANA未確認' };
+    return { k: 'maybe', t: 'ANA提携枠の根拠不足' };
   }
   const chanceOf = (l, ow) => (ow ? jalChance(l) : anaChance(l));
-  const srcBadges = (l, ow) => { const srcs = l.srcs || []; if (!srcs.length) return ''; const jc = chanceOf(l, ow); return `<span class="srcs ${jc.k}" title="在庫が出ているプログラム: ${esc(srcs.join(', '))}">${srcs.map(x => esc(SRC_SHORT[x] || x)).join('/')}・${esc(jc.t)}</span>`; };
-  // データの鮮度: seats.aero のキャッシュが最後に更新された時刻からの経過
-  const ageOf = l => { const t = Date.parse(l.upd || ''); return isNaN(t) ? null : (Date.now() - t) / 3600000; };
-  const ageBadge = l => { const h = ageOf(l); if (h == null) return ''; const txt = h < 1 ? '1時間以内' : h < 24 ? `${Math.round(h)}時間前` : `${Math.round(h / 24)}日前`; const cls = h >= 72 ? 'old' : h >= 24 ? 'mid' : ''; return `<span class="age ${cls}" title="seats.aero がこの空席を最後に確認してからの経過時間">${txt}${h >= 72 ? '・要確認' : ''}</span>`; };
+  const ageOf = l => E.hours(l.upd);
+  const ageText = h => h === null ? '時刻不明' : h < 1 ? '1時間以内' : h < 24 ? `${Math.ceil(h)}時間前` : `${Math.ceil(h / 24)}日前`;
+  const srcBadges = (l, ow) => {
+    const jc = chanceOf(l, ow);
+    const observations = (l.observations || []).map(x => `<div>${esc(SRC_SHORT[x.source] || x.source || '提供元不明')}：${x.seats == null ? '席数不明' : x.seats + '席'}／${ageText(E.hours(x.upd))}${x.source === l.selectedSource ? '（判定に使用）' : ''}</div>`).join('');
+    return `<span class="srcs ${jc.k}">${esc(jc.t)}</span><details class="evidence"><summary>提供元別の根拠</summary>${observations}</details>`;
+  };
+  const ageBadge = l => `<span class="age ${ageOf(l) === null || ageOf(l) > 72 ? 'old' : ''}">${ageText(ageOf(l))}</span>`;
   const isVN = l => /^VN/.test(l.fn);
   // 候補の便を表で出す。1 行＝1 便。乗継候補は 2 行＋乗継時間の行
-  const LEG_HEAD = `<thead><tr><th>日付</th><th>便名</th><th>出発</th><th>到着</th><th>残席</th><th>機材</th><th>在庫</th><th>最終確認</th><th></th></tr></thead>`;
+  const LEG_HEAD = `<thead><tr><th>日付</th><th>便名</th><th>出発</th><th>到着</th><th>他社での席数</th><th>機材</th><th>在庫</th><th>観測時刻</th><th></th></tr></thead>`;
   function legRow(l, cabin, ow, cls) {
     const a321 = /321/.test(l.ac) && /^(VN|BR)/.test(l.fn); const k = H.kind(l.date);
-    const plus1 = l.arr.slice(0, 10) !== l.date ? '<sup>+1</sup>' : '';
+    const delta = Math.round((tmin(l.arr.slice(0, 10) + 'T00:00') - tmin(l.date + 'T00:00')) / 1440);
+    const plus1 = delta ? `<sup>${delta > 0 ? '+' : ''}${delta}日</sup>` : '';
     const vn = '';
-    return `<tr class="${cls || ''}"><td class="d ${k}">${l.date.slice(5).replace('-', '/')}${esc(H.label(l.date)).replace('（', '(').replace('）', ')')}</td><td class="fn">${esc(l.fn)}</td><td><span class="t">${l.dep.slice(11, 16)}</span><br><span class="ap">${esc(apLabel(l.o))}</span></td><td><span class="t">${l.arr.slice(11, 16)}${plus1}</span><br><span class="ap">${esc(apLabel(l.d))}</span></td><td class="seat"><span>${l.seats || '?'}席</span></td><td class="ac">${esc((l.ac || '').replace('Airbus ', '').replace('Boeing ', ''))}${a321 ? ' <span class="ac321">⚠A321</span>' : ''}</td><td>${srcBadges(l, ow)}${vn}</td><td>${ageBadge(l)}</td><td><a class="ext" href="${seatsUrl(l, cabin)}" target="_blank" rel="noopener">seats.aero</a></td></tr>`;
+    return `<tr class="${cls || ''}"><td class="d ${k}">${l.date.slice(5).replace('-', '/')}${esc(H.label(l.date)).replace('（', '(').replace('）', ')')}</td><td class="fn">${esc(l.fn)}</td><td><span class="t">${l.dep.slice(11, 16)}</span><br><span class="ap">${esc(apLabel(l.o))}</span></td><td><span class="t">${l.arr.slice(11, 16)}${plus1}</span><br><span class="ap">${esc(apLabel(l.d))}</span></td><td class="seat"><span>${l.seats == null ? '不明' : l.seats + '席'}</span></td><td class="ac">${esc((l.ac || '').replace('Airbus ', '').replace('Boeing ', ''))}${a321 ? ' <span class="ac321">⚠A321</span>' : ''}</td><td>${srcBadges(l, ow)}${vn}</td><td>${ageBadge(l)}</td><td><a class="ext" href="${seatsUrl(l, cabin)}" target="_blank" rel="noopener">seats.aero</a></td></tr>`;
   }
   const legTable = (legs, cabin, ow) => `<table class="legs">${LEG_HEAD}<tbody>${legs.map(l => legRow(l, cabin, ow)).join('')}</tbody></table>`;
   function comboTable(combos, cabin, ow) {
@@ -502,12 +504,33 @@
       const who = ow ? 'JAL' : 'ANA';
       const segs = c.legs.map((l, i) => `${'①②③④⑤⑥'[i] || (i + 1)} ${esc(n(cityOfAp(l.o)).replace(/（.*?）/g, ''))}(${esc(l.o)}) → ${esc(n(cityOfAp(l.d)).replace(/（.*?）/g, ''))}(${esc(l.d)}) ${l.date.slice(5).replace('-', '/')}`).join('　');
       const cf = confidence(c, ow);
-      const sureTxt = `<span class="grade g${cf.grade === '◎' ? 'a' : cf.grade === '○' ? 'b' : 'c'}" title="${esc(cf.why)}">取れそう度 ${cf.grade}</span><span class="muted">（${esc(cf.why)}）</span>　`;
+      const sureTxt = `<span class="grade g${cf.level === 2 ? 'a' : cf.level === 1 ? 'b' : 'c'}" title="${esc(cf.why)}">${cf.grade}・公式未確認</span><span class="muted">（${esc(cf.why)}）</span>　`;
       const fuelTxt = `${sureTxt}<span class="fuelest ${fuelOf(c) === 0 ? 'zero' : ''}">燃油目安 ${fuelOf(c) === 0 ? '0 円' : `約¥${fmt(fuelOf(c))}`}/人（この片道）</span>　`;
       h += `<tr class="gaprow inputrow"><td colspan="9">${fuelTxt}${who} の複数都市画面に入れる区間: ${segs}${c.legs.length > 1 ? `　<span class="muted">（${c.legs.length} 区間とも同じ画面で指定。往復なら復路の便を区間 ${c.legs.length + 1} 以降に続ける）</span>` : ''}</td></tr>`;
+      if (!ow) h += `<tr class="gaprow"><td colspan="9">${candidateComment(c)}</td></tr>`;
       return h;
     }).join('');
     return `<table class="legs">${LEG_HEAD}<tbody>${rows}</tbody></table>`;
+  }
+  function candidateMiles(c) {
+    const cabin = c.legs[0].cabin, dz = zone(S.q.dest);
+    if (c.legs.every(l => opOf(l) === 'NH')) {
+      const season = seasonOf(c.legs[0].date), chart = (charts().anaChart[dz] || {})[cabin];
+      return chart && season ? chart[{ L: 0, R: 1, H: 2 }[season]] / 2 : null;
+    }
+    return (D.partnerZoneChart[`${c.legs.length === 1 ? '1-A' : '1-B'}-${dz}`] || {})[cabin] / 2 || null;
+  }
+  function candidateComment(c) {
+    const weak = c.legs.slice().sort((a, b) => legScore(a, false) - legScore(b, false) || (a.seats ?? 0) - (b.seats ?? 0) || b.dist - a.dist)[0];
+    const tips = [`先に ${weak.fn}（${weak.o}→${weak.d}）を${paxN()}人・${CABINS[weak.cabin]}で照合。次に全区間をまとめて確認してください。`];
+    if (c.legs.some(l => l.seats == null)) tips.push('席数不明を含みます。同行人数分の空席を示す候補ではありません。');
+    if (c.legs.some(l => opOf(l) === 'VN')) tips.push('VNはFlying Blue等とANAの枠が異なります。ANA特典は全便VNで検索してください。');
+    if (c.legs.some(l => opOf(l) === 'SQ' && l.cabin !== 'Y')) tips.push('SQは機種・クラスによる制限があります。ANA公式で先に確認してください。');
+    if (c.legs.some(l => E.assess(l, paxN()).conflict)) tips.push('提供元によって人数条件が一致していません。');
+    if (c.stop) tips.push('★は往復全体で1回まで。復路にも★を選ぶ組み合わせは不可です。');
+    if (c.legs.length > 1) tips.push('同じ空港の乗継でも、必要乗継時間・通し発券の可否はANAで確認が必要です。');
+    const miles = candidateMiles(c);
+    return `<div class="candidate-comment"><b>探すコツ</b> ${tips.map(esc).join(' ')}<div>この片道の通常マイル参考：<b>${miles == null ? '公式で確認' : fmt(miles) + 'マイル/人'}</b>。往復で他社便・乗継を追加すると適用チャートが変わる場合があります。</div></div>`;
   }
   function renderGroup(g, gi) {
     const q = S.q;
@@ -537,39 +560,46 @@
       const v1 = pb ? pb[1][JKEY] : null, v2 = ob ? ob[1][JKEY] : null;
       return `${v1 != null ? fmt(v1) : '—'}<div class="muted" style="font-size:11px">JMB提携・${o && r ? '往復' : '片道'}・総距離 ${fmt(dist)}mi${v2 != null ? `／2社以上なら ${fmt(v2)}` : ''}</div>`;
     };
-    const milesCell = (isDirect, p) => (G.ana ? (isDirect ? (a.anaMiles != null ? fmt(a.anaMiles) : '—') : (a.pMiles != null ? fmt(a.pMiles) : '—')) : (isDirect ? jalDirectCell() : jalPartnerCell(p)));
+    const milesCell = (isDirect, p) => {
+      if (!G.ana) return isDirect ? jalDirectCell() : jalPartnerCell(p);
+      if (isDirect) return `${a.anaMiles != null ? fmt(a.anaMiles) : '—'}<div class="muted">${a.ret ? '往復' : '片道'}・希望日での参考。候補別は詳細へ</div>`;
+      const values = [...p.outC, ...p.retC].map(candidateMiles).filter(v => v != null);
+      if (!values.length) return '—';
+      const lo = Math.min(...values), hi = Math.max(...values);
+      return `${fmt(lo)}${lo !== hi ? '〜' + fmt(hi) : ''}<div class="muted">片道候補ごとの参考/人。往復全体は公式で確認</div>`;
+    };
     // ワンワールド: JAL の在庫（source=jal）に出ている組合せの数。これが 0 なら JAL マイルでは予約できない可能性が高い
     const comboKinds = combos => combos.map(c => { const ks = c.legs.map(l => chanceOf(l, !G.ana).k); return ks.includes('ng') ? 'ng' : ks.every(k => k === 'ok') ? 'ok' : 'maybe'; });
     const jalNote = (combos) => {
       if (!combos.length) return ''; const ks = comboKinds(combos); const ok = ks.filter(k => k === 'ok').length, maybe = ks.filter(k => k === 'maybe').length;
       const who = G.ana ? 'ANA' : 'JAL';
-      const t = ok ? `${who}可の見込み ${ok}通り` : maybe ? `${who}要確認 ${maybe}通り` : `${who}不可の可能性大`;
+      const t = `${who}公式未確認・${ok ? '提携枠の観測あり' : '照合が必要'}`;
       return `<div class="muted jalnote ${ok ? 'ok' : maybe ? 'maybe' : 'ng'}" style="font-size:11px">${t}</div>`;
     };
     // グループごとに枠で囲み、クラス（ビジネス／エコノミー）とアライアンスを色付きの見出し帯で示す
     const cabCls = { Y: 'cab-y', PY: 'cab-py', C: 'cab-c', F: 'cab-f' }[g.cabin] || 'cab-y';
     let h = `<section class="grp ${cabCls} ${G.ana ? 'al-star' : 'al-ow'}"><div class="grp-head"><span class="cab-badge">${esc(CABINS[g.cabin])}</span><span class="al-badge">${esc(G.label)}</span>${g.fallback ? `<span class="grp-note">${esc(CABINS[LIVE.results.cabin])}が無かったので${g.sides.length < (S.dates['q.ret'] ? 2 : 1) ? `${g.sides.map(s => SIDE_LABEL[s]).join('・')}だけ` : ''}エコノミーで再探索</span>` : ''}</div><div class="grp-body">`;
     groupSummary(g).forEach(s => { h += msg(s.ok ? 'ok' : 'warn', s.t); });
-    if (sureMode() && g.partners.some(p => p.outC.length || p.retC.length)) h += `<div class="msg info">取れそう度モード: 3 日以上前のデータの便と、運航会社の会員枠にしか出ていない便を除いてから乗継を組んでいます（要約の「空きなし」もその前提）。残った候補は「最終確認の新しさ」「提携枠に出ているか」「残席の余裕」「複数プログラムに出ているか」を点数化し、いちばん弱い便で評価して高い順に並べています。◎＝全便が提携枠で 24 時間以内に確認、○＝要確認の便あり、△＝会員枠のみの便か 3 日以上前のデータ。${fuelSaver() ? '燃油節約モードも ON のため、燃油が安い順の中で取れそうな順になります。' : ''}</div>`;
+    if (sureMode()) h += `<div class="msg info">人数分の席数・72時間以内の観測時刻・運航会社以外の提携プログラムの根拠が揃う便を表示しています。「根拠が比較的強い」は全区間で24時間以内の複数提供元が人数条件に一致した候補です。予約成功率ではありません。公式確認前はすべて未確認です。</div>`;
     if (fuelSaver() && g.partners.some(p => p.outC.length || p.retC.length)) h += `<div class="msg info">燃油節約モード: 各候補に燃油の目安（運航会社の燃油設定と区間から見積もり。ANA 便と UA の日本発着区間は ANA 公式表、SQ・VN・NZ・コパ・アビアンカ・エチオピアは 0 円、その他は会社ごとの係数）を付け、安い順に並べています。正確な額は ANA サイトの「税金・料金等」で確認してください。</div>`;
-    h += `<table class="sum" style="margin-top:6px"><thead><tr><th>航空会社</th><th>往路 <span class="muted" style="font-weight:400">候補日の数（往路ありを先に）</span></th><th>復路 <span class="muted" style="font-weight:400">候補日の数</span></th><th>${G.ana ? 'ANAマイル（往復参考）' : 'JALマイル'}</th><th>燃油</th><th></th></tr></thead><tbody>`;
+    h += `<table class="sum" style="margin-top:6px"><thead><tr><th>航空会社</th><th>往路 <span class="muted" style="font-weight:400">候補日の数（往路ありを先に）</span></th><th>復路 <span class="muted" style="font-weight:400">候補日の数</span></th><th>${G.ana ? 'ANAマイル参考' : 'JALマイル'}</th><th>燃油</th><th></th></tr></thead><tbody>`;
     if (g.direct) {
       const o = g.direct.out.length, r = g.direct.ret.length;
       h += `<tr class="${(o || r) ? 'full' : ''}"><td><b>${esc(cname(g.direct.cfg.c))} 直行</b></td><td>${cell(hasOut, g.direct.out)}</td><td>${cell(hasRet, g.direct.ret)}</td><td>${milesCell(true)}</td><td>${fuelCell(g.direct.cfg.c)}</td><td>${(o || r) ? `<a href="#live-${gi}-direct" class="muted">詳細</a>` : ''}</td></tr>`;
     }
     const bestFuel = p => { const o = p.outC[0] ? fuelOf(p.outC[0]) : 0, r = p.retC[0] ? fuelOf(p.retC[0]) : 0; return o + r; };
     const bestScore = p => Math.max(...[p.outC[0], p.retC[0]].filter(Boolean).map(c => confidence(c, !G.ana).score), -99);
-    // 並び順: 往路に候補がある会社を最優先（予約は往路から取るため）→ 復路もある → 燃油／取れそう度 → 件数
+    // 並び順: 往路に候補がある会社を最優先（予約は往路から取るため）→ 復路もある → 燃油／確認優先度 → 件数
     const parts = g.partners.slice().sort((x, y) => ((y.outC.length > 0) - (x.outC.length > 0)) || ((y.retC.length > 0) - (x.retC.length > 0)) || (fuelSaver() ? (bestFuel(x) - bestFuel(y)) : 0) || (sureMode() ? (bestScore(y) - bestScore(x)) : 0) || (y.outC.length + y.retC.length) - (x.outC.length + x.retC.length));
-    const gradeNote = combos => { if (!sureMode() || !combos.length) return ''; const cf = confidence(combos[0], !G.ana); return `<div class="grade g${cf.grade === '◎' ? 'a' : cf.grade === '○' ? 'b' : 'c'}" style="font-size:11px" title="${esc(cf.why)}">${cf.grade} ${esc(cf.why)}</div>`; };
+    const gradeNote = combos => { if (!sureMode() || !combos.length) return ''; const cf = confidence(combos[0], !G.ana); return `<div class="grade g${cf.level === 2 ? 'a' : cf.level === 1 ? 'b' : 'c'}" style="font-size:11px" title="${esc(cf.why)}">${cf.grade} ${esc(cf.why)}</div>`; };
     const fuelBest = p => { if (!fuelSaver() || !(p.outC.length || p.retC.length)) return ''; const parts2 = []; if (p.outC[0]) parts2.push(`往路 ${fuelOf(p.outC[0]) === 0 ? '0円' : '約¥' + fmt(fuelOf(p.outC[0]))}`); if (p.retC[0]) parts2.push(`復路 ${fuelOf(p.retC[0]) === 0 ? '0円' : '約¥' + fmt(fuelOf(p.retC[0]))}`); return `<div class="fuelest ${bestFuel(p) === 0 ? 'zero' : ''}" style="font-size:12px">最安候補: ${parts2.join('／')}</div>`; };
     parts.forEach(p => {
       const pi = g.partners.indexOf(p); const okOut = p.outC.length > 0, okRet = p.retC.length > 0; const full = (okOut || !hasOut) && (okRet || !hasRet) && (okOut || okRet);
-      h += `<tr class="${full ? 'full' : ''}"><td>${esc(rowName(p.cfg))}${p.cfg.c === 'VN' ? ' <span class="muted" style="font-size:11px">参考</span>' : ''}${p.cfg.mixed ? ' <span class="muted" style="font-size:11px">会社をまたぐ乗継</span>' : ''}<div class="muted" style="font-size:11px">${hubLabel(p.cfg, '／', p)}経由${!p.cfg.mixed && D.carriers[p.cfg.c] && D.carriers[p.cfg.c].fuel === 'no' ? '・燃油0' : ''}${p.cfg.c === 'VN' ? '<br>Flying Blue 等の在庫。ANA の枠は別なので ANA サイトで要確認' : ''}</div></td><td>${cell(hasOut, p.outC)}${jalNote(p.outC)}${gradeNote(p.outC)}</td><td>${cell(hasRet, p.retC)}${jalNote(p.retC)}${gradeNote(p.retC)}</td><td>${milesCell(false, p)}</td><td>${fuelBest(p)}${p.cfg.mixed ? uniq(p.cfg.ops).map(c => `<div style="font-size:12px">${esc(cname(c))}: ${fuelCell(c)}</div>`).join('') : fuelCell(p.cfg.c)}</td><td>${(okOut || okRet) ? `<a href="#live-${gi}-${pi}" class="muted">詳細</a>` : ''}</td></tr>`;
+      h += `<tr class="${full ? 'full' : ''}"><td>${esc(rowName(p.cfg))}${p.cfg.c === 'VN' ? ' <span class="muted" style="font-size:11px">参考</span>' : ''}${p.cfg.mixed ? ' <span class="muted" style="font-size:11px">会社をまたぐ乗継</span>' : ''}<div class="muted" style="font-size:11px">${routeLabel(p.cfg, '／', p)}${!p.cfg.mixed && D.carriers[p.cfg.c] && D.carriers[p.cfg.c].fuel === 'no' ? '・燃油0' : ''}${p.cfg.c === 'VN' ? '<br>Flying Blue 等の在庫。ANA の枠は別なので ANA サイトで要確認' : ''}</div></td><td>${cell(hasOut, p.outC)}${jalNote(p.outC)}${gradeNote(p.outC)}</td><td>${cell(hasRet, p.retC)}${jalNote(p.retC)}${gradeNote(p.retC)}</td><td>${milesCell(false, p)}</td><td>${fuelBest(p)}${p.cfg.mixed ? uniq(p.cfg.ops).map(c => `<div style="font-size:12px">${esc(cname(c))}: ${fuelCell(c)}</div>`).join('') : fuelCell(p.cfg.c)}</td><td>${(okOut || okRet) ? `<a href="#live-${gi}-${pi}" class="muted">詳細</a>` : ''}</td></tr>`;
     });
     h += `</tbody></table>`;
     if (g.direct && (g.direct.out.length || g.direct.ret.length)) {
-      h += `<details id="live-${gi}-direct" style="margin-top:10px" open><summary><b>${esc(cname(g.direct.cfg.c))} 直行</b> の便</summary>${g.direct.out.length ? `<div class="sidebox out"><div class="sidehead">往路 <span>${esc(n(q.origin).replace(/（.*?）/g, ''))} → ${esc(n(q.dest).replace(/（.*?）/g, ''))}</span></div>${legTable(g.direct.out.slice(0, 8), g.cabin, !G.ana)}</div>` : ''}${g.direct.ret.length ? `<div class="sidebox ret"><div class="sidehead">復路 <span>${esc(n(q.dest).replace(/（.*?）/g, ''))} → ${esc(n(q.final).replace(/（.*?）/g, ''))}</span></div>${legTable(g.direct.ret.slice(0, 8), g.cabin, !G.ana)}</div>` : ''}</details>`;
+      h += `<details id="live-${gi}-direct" style="margin-top:10px" open><summary><b>${esc(cname(g.direct.cfg.c))} 直行</b> の便</summary>${g.direct.out.length ? `<div class="sidebox out"><div class="sidehead">往路 <span>${esc(n(q.origin).replace(/（.*?）/g, ''))} → ${esc(n(q.dest).replace(/（.*?）/g, ''))}</span></div>${comboTable(g.direct.out.slice(0, 8).map(l => ({legs:[l],stop:false})), g.cabin, !G.ana)}</div>` : ''}${g.direct.ret.length ? `<div class="sidebox ret"><div class="sidehead">復路 <span>${esc(n(q.dest).replace(/（.*?）/g, ''))} → ${esc(n(q.final).replace(/（.*?）/g, ''))}</span></div>${comboTable(g.direct.ret.slice(0, 8).map(l => ({legs:[l],stop:false})), g.cabin, !G.ana)}</div>` : ''}</details>`;
     }
     parts.filter(p => p.outC.length || p.retC.length).forEach((p, idx) => {
       const pi = g.partners.indexOf(p);
@@ -580,10 +610,10 @@
     });
     if (G.ana && g.partners.some(p => p.outC.length || p.retC.length)) {
       const bothStop = g.partners.filter(p => p.outC.length && p.retC.length && p.outC.every(c => c.stop) && p.retC.every(c => c.stop)).map(p => rowName(p.cfg));
-      h += `<p class="muted" style="margin-top:6px;font-size:12px"><b>ANA 提携特典のルール</b>（2025年6月24日以降の発券分）: スターアライアンス各社と ANA は 1 つの旅程に自由に組み合わせ可。乗換は海外で往路・復路各 2 回、日本国内で各 1 回（国内線は ANA 便のみ）まで。途中降機（24 時間超＝★）は往復で目的地以外に 1 回だけ、片道旅程では不可。乗換地点を目的地より必要マイルの高いゾーンにはできない。クラス混在可（往路・復路それぞれ上位クラスのマイル）。<b>ベトナム航空はスターアライアンス外の個別提携なので、同じ旅程に入れられるのは ANA 便だけ</b>（往路ベトナム航空・復路タイ航空のような組み合わせは不可。別々の片道特典にすれば可）。ここに出る候補はこれらで絞ってあります。${bothStop.length ? `<br><b>注意:</b> ${esc(bothStop.join('・'))} は往路・復路とも★になる候補しか無いので、どちらかを 24 時間以内の乗継に変える必要があります。` : ''}</p>`;
-      h += `<p class="muted" style="margin-top:6px;font-size:12px"><b>ANA マイルで取れるかの見込み</b>: スターアライアンスの提携枠は各社共通なので、運航会社以外の提携プログラム（UA・AC・AV）にも出ている便は ANA でも見える見込みです。運航会社自身のプログラムにしか出ていない便（例: エアカナダ便が Aeroplan だけ、ユナイテッド便が United だけ）は会員向けの変動価格枠で、ANA のサイトでは出ないことが多いです。最終確認は ANA サイトで。</p>`;
+      h += `<p class="muted">ANA提携特典：海外乗継は片道2回まで、途中降機は往復全体で1回まで（片道は不可）。乗継エリア・必要マイルの制限もあります。VNは全便VNの旅程のみ。往路と復路は独立した候補で、日付順・途中降機合計・会社の組み合わせを含む往復全体の成立は未確認です。${bothStop.length ? `<b>${esc(bothStop.join('・'))}は両方向に★があり、そのまま往復にできません。</b>` : ''} <a href="https://www.ana.co.jp/ja/jp/guide/amc/award/tk/usage/" target="_blank" rel="noopener">ANA公式ルール</a></p>`;
+      h += `<p class="muted">他社の提携枠はANAの空席を保証しません。2026年10月18日の照合では、11月2日TG641のビジネス1人はANAで確認できましたが、乗継先の11月3日TG910はビジネスを再現できませんでした。1区間の確認を全旅程の確認として扱わないでください。</p>`;
     }
-    if (!G.ana && g.partners.some(p => p.outC.length || p.retC.length)) h += `<p class="muted" style="margin-top:6px;font-size:12px"><b>JAL マイルで取れるかの見込み</b>: seats.aero の JAL 在庫は現状ほぼ空（JAL 便は PLUS で常に「空席あり」になるため）なので、他プログラムの出方から推定しています。JAL 運航便は提携各社に出ていれば JAL 会員も基本マイルか PLUS で取れる見込みです。「JAL要確認」は AA・BA・カンタス・キャセイ・フィンエアー・カタール Avios など複数のワンワールド系に出ている共通枠で、JAL でも出る可能性があります。「AS/自社のみ」はアラスカと運航会社自身の会員向けにしか出ていない枠で、JAL では出ない可能性が高いです（カタール航空に多い）。最終確認は JAL サイトで。</p><p class="help muted" style="margin-top:6px">ワンワールド各社は ANA マイルでは予約できません。マイル列は JAL マイルの目安です（JAL 便は路線別の基本マイル、提携各社は総旅程距離制。1 社だけなら JMB 提携航空会社特典、JAL 国内線など 2 社以上を組み合わせるとワンワールド特典のチャート）。BA Avios・カタール Avios・アラスカなど他のワンワールド系マイルでも予約できます。</p>`;
+    if (!G.ana && g.partners.some(p => p.outC.length || p.retC.length)) h += `<p class="muted">ワンワールドはANAマイル対象外です。他プログラムの観測はJAL公式の空席保証にはなりません。JAL PLUSとワンワールド特典では適用条件が異なります。</p>`;
     return h + `</div></section>`;
   }
   // 本日の API 使用状況（この端末の回数。seats.aero が残回数を返せばそれを表示）
@@ -597,12 +627,13 @@
     const R = LIVE.results;
     const w = S.settings.window == null ? 6 : S.settings.window;
     let h = `${proxyInfo && proxyInfo.mock ? msg('warn', '動作確認用のサンプルデータです。実際の空席ではありません。') : ''}<div class="card"><h2>空席を探す <span class="muted" style="font-weight:400;font-size:12px">seats.aero のデータ・便名/時刻/残席つき</span></h2>
-      <p class="help muted">ANA 直行便を先に調べ、次にスターアライアンス各社とベトナム航空のハブ経由を組みます。さらに「日本→地域の玄関ハブ（ANA 直行や提携長距離便）→現地の提携会社で目的地へ」という会社をまたぐ乗継（現地ハブを挟む 3 区間を含む。海外乗継 2 回まで）も組みます。希望日の前後${esc(String(w))}日、同じハブで 1.5〜72 時間（24 時間超は★）でつながり、<b>${esc(String(paxN()))}人分の席がある</b>組合せだけを出します。往路・復路の「○ 3日」は候補のある出発日の数、「燃油」は ANA 便は公式表（1区間×往復）、他社便は有無と実例ベースの目安です。各便の「seats.aero」リンクでその日・その区間を seats.aero 上で開けます。全社・全クラスをまとめて問い合わせるので、1 回の探索で使う API は往復 4〜6 回（片道 2〜3 回。件数が多いとページ送りで増える）です。上限は 1 日 1,000 回（UTC 0 時＝日本時間 朝 9 時リセット）です。往路か復路の日付だけ変えて再検索すると、変えていない側は前回の取得結果（6 時間以内）を再利用するので API はその側の分だけで済みます。</p>
+      <p class="help muted">選んだ出発地・帰着地だけで、直行または同じ空港で1.5〜72時間の乗継候補を探します（24時間超は★）。席数が不明な便は通常除外し、参考表示を選んだ場合だけ追加します。APIの再取得はデータ提供元での空席再確認を意味しません。前回と同条件の側は6時間以内の取得結果を再利用します。</p>
       <div class="row chks">
         ${S.cabin === 'Y' ? `<span class="muted" style="font-size:12px">エコノミーで探します（上位クラスの再探索はありません）</span>` : `<label><input type="checkbox" data-k="settings.liveFallbackY" ${S.settings.liveFallbackY !== false ? 'checked' : ''}> ${esc(CABINS[S.cabin])}が無ければエコノミーも探す</label>`}
         <label><input type="checkbox" data-k="settings.liveOW" ${S.settings.liveOW ? 'checked' : ''}> 参考: ワンワールド系も見る</label>
         <label><input type="checkbox" data-k="settings.liveFuelSaver" ${S.settings.liveFuelSaver ? 'checked' : ''}> 燃油サーチャージを減らす</label>
-        <label><input type="checkbox" data-k="settings.liveSure" ${S.settings.liveSure ? 'checked' : ''}> 取れそうな便だけで組む</label>
+        <label><input type="checkbox" data-k="settings.liveSure" ${sureMode() ? 'checked' : ''}> 根拠の揃う候補に絞る</label>
+        <label><input type="checkbox" data-k="settings.liveUnknown" ${S.settings.liveUnknown ? 'checked' : ''}> 席数不明も参考表示（絞り込みOFF時）</label>
         <label>希望日の前後 <input type="number" min="0" max="14" data-k="settings.window" value="${esc(String(w))}" style="width:56px"> 日</label>
       </div>
       <div class="help option-help">
@@ -611,19 +642,31 @@
           ${S.cabin !== 'Y' ? `<dt>${esc(CABINS[S.cabin])}が無ければエコノミーも探す</dt><dd>希望クラスの候補が見つからない場合、候補のない往路・復路だけエコノミーでも探します。片方に希望クラスの空席があれば、その候補は残します。日程を優先したいときに便利です。</dd>` : ''}
           <dt>参考: ワンワールド系も見る</dt><dd>JAL直行便や、カタール航空・フィンエアー・キャセイパシフィックなどの乗り継ぎ候補も別枠で表示します。他のマイレージも使える場合に、行き方や空席を比較できます。</dd>
           <dt>燃油サーチャージを減らす</dt><dd>便ごとの燃油サーチャージを見積もり、目安が安い候補を優先して並べます。乗り継ぎ回数や希望日への近さよりも燃油の安さを優先します。税金・空港使用料を含む総額ではないため、支払額は予約画面で確認してください。</dd>
-          <dt>取れそうな便だけで組む</dt><dd>最終確認から72時間を超えた便と、運航会社の会員向けの枠しか確認できない便を除外します。そのうえで、データの新しさ・提携枠の有無・残席の余裕・複数プログラムへの掲載状況から候補を並べます。予約の成功を保証するものではなく、候補が少なければオフにして探し直せます。</dd>
+          <dt>根拠の揃う候補に絞る</dt><dd>観測から72時間を超えた便と、運航会社の会員向けの枠しか確認できない便を除外します。時刻不明・席数不明や人数不足の便も除外します。席数と時刻は同じ提供元の観測を使い、複数提供元の一致と最も弱い区間をもとに並べます。予約の成功を保証するものではなく、候補が少なければオフにして探し直せます。</dd>
         </dl>
-        <p class="muted">「燃油サーチャージを減らす」と「取れそうな便だけで組む」を両方オンにすると、候補を絞ったうえで燃油の安さを優先し、同程度なら取れそうな順に表示します。</p>
+        <p class="muted">「燃油サーチャージを減らす」と「根拠の揃う候補に絞る」を両方オンにすると、候補を絞ったうえで燃油の安さを優先し、同程度なら根拠の強い順に表示します。</p>
       </div>
-      <div class="row"><button class="btn primary" data-act="livesearch" ${apiStatus().ok && LIVE.status !== 'running' ? '' : 'disabled'}>${LIVE.status === 'running' ? `探索中… ${LIVE.calls}回` : '空席を探す'}</button>${LIVE.status === 'done' ? `<span class="muted">完了・API ${LIVE.calls}回${LIVE.reused.length ? `（${LIVE.reused.map(s => SIDE_LABEL[s]).join('・')}は前回の結果を再利用）` : ''}</span>${LIVE.reused.length ? `<button class="btn small" data-act="liverefresh">全部取り直す</button>` : ''}` : ''}${!apiStatus().ok ? `<span class="muted">${esc(apiStatus().label)}</span>` : ''}${apiStatus().ok ? usageHtml() : ''}</div>`;
+      <div class="row"><button class="btn primary" data-act="livesearch" ${apiStatus().ok && LIVE.status !== 'running' ? '' : 'disabled'}>${LIVE.status === 'running' ? `探索中… ${LIVE.calls}回` : '空席を探す'}</button>${LIVE.status === 'done' ? `<span class="muted">完了・API ${LIVE.calls}回${LIVE.reused.length ? `（${LIVE.reused.map(s => SIDE_LABEL[s]).join('・')}は前回の結果を再利用）` : ''}</span><button class="btn small" data-act="liverefresh">全部取り直す</button>` : ''}${!apiStatus().ok ? `<span class="muted">${esc(apiStatus().label)}</span>` : ''}${apiStatus().ok ? usageHtml() : ''}</div>`;
     if (LIVE.status === 'error') h += msg('err', LIVE.msg);
     if (LIVE.log.length) h += `<details style="margin-top:6px"><summary class="muted" style="cursor:pointer;font-size:12px">探索ログ</summary><div class="progress">${LIVE.log.map(esc).join('\n')}</div></details>`;
     if (R && R.groups.length) {
       R.groups.forEach((g, gi) => { h += renderGroup(g, gi); });
-      if (LIVE.status === 'done' && !R.groups.some(g => g.alliance === 'star' && groupHas(g, 'out'))) h += msg('info', 'ANA マイルで組める往路なし。前後の日数を広げる／日付を動かす／出発地を東京にする、で再探索。');
+      if (LIVE.status === 'done' && !R.groups.some(g => g.alliance === 'star' && groupHas(g, 'out'))) h += msg('info', 'このデータと条件では往路候補なし。ANA公式の空席ゼロを意味しません。前後の日数・出発地・絞り込み条件を変えるか、ANA公式も検索してください。');
       h += `<p class="help muted" style="margin-top:8px">往路と復路で別の航空会社を組み合わせても可（ベトナム航空を含む旅程は全便ベトナム航空）。欧州内短距離のビジネスは各社とも通常座席。空席は seats.aero のキャッシュで、各便の「最終確認」は seats.aero がその空席を最後に確認した時刻からの経過です（3 日以上前は要確認）。ANA 会員だけに開放される ANA 便の枠は含まれません。ベトナム航空はスターアライアンス外で、ここに出るのは Flying Blue／デルタ等に開放された枠なので、ANA で取れるかは ANA サイトで確認してください。予約は ANA 公式サイトで。</p>`;
     }
     return h + `</div>`;
+  }
+
+  function searchGuide() {
+    return `<details class="card search-guide"><summary><b>ANAで探すコツ・検証で分かったこと</b></summary>
+      <ol><li><b>弱い区間から照合。</b>候補の「探すコツ」に出る便を先に確認し、その後に往復全区間を同じ人数・クラスで検索します。1便取れても乗継全体が取れるとは限りません。</li>
+      <li><b>前後の日付と出発地を変える。</b>候補が少なければ前後日数を広げるか、関西・中部などを選んで再検索します。地方までの移動はこの候補・マイル数に含みません。</li>
+      <li><b>人数を変えた診断は、最後に全員分で。</b>1人では出ても2人では出ない場合、人数が制約になっています。席数不明を同行人数分の空席とは数えません。</li>
+      <li><b>観測日と検索した日を区別。</b>「全部取り直す」後も提供元の観測時刻が古いことがあります。直前便は予約受付期限も公式で確認してください。候補ゼロでもANA会員向けの空席が残る場合があるため、公式も検索してください。</li></ol>
+      <div class="msg info"><b>2026年10月18日の実機照合</b>：11月2日TG641（成田→バンコク）のビジネス1人はANAで30,000マイル＋33,310円まで確認。一方、接続候補の11月3日TG910（バンコク→ロンドン）はビジネスを再現できませんでした。これは当日の一例で、現在の空席や航空会社別の成功率を示しません。</div>
+      <p>販促用に案内する際は、ANA公式の全区間・人数・クラス・必要マイル・税金料金の確認結果と確認日時を添えてください。このサイト内の候補はすべてANA公式未確認です。</p>
+      <p class="source-links"><a href="https://www.ana.co.jp/ja/jp/guide/amc/award/tk/application/" target="_blank" rel="noopener">ANA公式で空席照合・予約へ</a> · <a href="https://www.ana.co.jp/ja/jp/guide/amc/award/tk/usage/" target="_blank" rel="noopener">提携特典ルール</a> · <a href="https://www.ana.co.jp/ja/jp/guide/amc/award/international/terms/" target="_blank" rel="noopener">ANAマイル・シーズン</a> · <a href="https://www.ana.co.jp/ja/jp/guide/amc/award/tk/zone/" target="_blank" rel="noopener">提携マイル</a></p>
+    </details>`;
   }
 
   // ---------- tab: quick ----------
@@ -633,7 +676,7 @@
     h += `<section class="intro"><span class="eyebrow">AWARD FLIGHT PLANNER</span><h2>マイルで、次の旅へ。</h2><p>行きたい場所と日程から、直行便も乗り継ぎも探せます。</p><div class="steps"><span>1. 行き先と日程を選ぶ</span><span>2. 空席の候補を探す</span><span>3. ANA公式で確認・予約</span></div></section>`;
     if (!apiStatus().ok) h += `<div class="card welcome"><div><h2>初めての方へ</h2><p class="muted">空席検索には合言葉、またはご自身の seats.aero APIキーが必要です。設定画面から入力してください。</p></div><button class="btn primary" data-act="openSettings">接続を設定する</button></div>`;
     h += `<div class="card"><h2>どこへ、いつ</h2>
-      <p class="help muted">出発地・目的地・帰着地・クラス・人数と日程を入れて「空席を探す」を押すと、seats.aero のデータから ANA マイルで取れる便を組んで出します。</p>
+      <p class="help muted">出発地・目的地・帰着地・クラス・人数と日程を入れて「空席を探す」を押すと、他社で観測された空席から、ANA公式で確認する候補を組みます。</p>
       <div class="grid">
         <label class="f">出発地${citySelect('q.origin', q.origin, { jpOnly: true, allowBlank: false })}</label>
         <label class="f"><b>目的地</b>${citySelect('q.dest', q.dest, { intlOnly: true })}</label>
@@ -647,17 +690,19 @@
       </div></div>`;
     if (!q.dest) return h + `<div class="card">${msg('info', '目的地を選んでください。')}</div>`;
 
-    h += msg('info', 'マイル数は1人分の往復参考値です（片道検索でも往復の値を表示）。シーズン・燃油を含め未検証の推定値があるため、予約時はANA公式で確認してください。');
+    if (S.chartOverride && S.chartOverride.rulesVersion !== 2) h += msg('info', '以前の手入力チャートは保存したまま、今回照合した公式値を使用しています。必要なら設定で再編集してください。');
+    h += msg('info', 'マイル数は選んだ日程の1人分・通常必要マイルです。候補日や乗継によって変わります。ANA公式チャート・地域別シーズンを2026年10月18日に照合。燃油は目安で、税金・料金の総額ではありません。');
     // 時期・必要マイル・直行便の有無
     h += `<div class="card"><div class="status-grid">`;
     h += `<div class="box"><div class="l">時期</div><div>${a.dep ? seasonTag(a.dep) : '<span class="muted">出発日を入れる</span>'}${a.ret && a.sRet !== a.sDep ? ` → ${seasonTag(a.ret)}` : ''}</div>${a.sDep === 'H' ? `<div class="muted" style="font-size:12px">ANA便は最も高い時期。他社便を1便入れると固定マイル</div>` : ''}</div>`;
     const fuelAsOf = (charts().anaFuel || D.anaFuel || {}).asOf || '';
-    h += `<div class="box"><div class="l">ANA便のみ（往復参考）</div><div class="big">${fmt(a.anaMiles)}</div><div class="muted" style="font-size:12px">${esc(a.anaNote || (a.dep ? 'シーズン制' : ''))}</div>${a.fuelRT != null && charts().anaChart[a.dz] ? `<div class="muted" style="font-size:12px">燃油 約¥${fmt(a.fuelRT)}/人（${a.ret ? '往復' : '片道'}・${esc(fuelAsOf)}）</div>` : (charts().anaChart[a.dz] ? '' : '<div class="muted" style="font-size:12px">ANA 便の路線なし</div>')}</div>`;
-    h += `<div class="box"><div class="l">他社便を含む（往復参考）</div><div class="big">${a.dz === 5 ? '不可' : fmt(a.pMiles)}</div><div class="muted" style="font-size:12px">${a.anaMiles != null && a.pMiles != null && a.anaMiles > a.pMiles ? `▲${fmt(a.anaMiles - a.pMiles)}` : '通年固定'}</div><div class="muted" style="font-size:12px">燃油は運航会社次第（SQ・VN は 0 円）</div></div>`;
-    const direct = a.anaDirectFrom ? `<span class="mark ok">○</span> ${esc(n(q.origin))}発あり` : a.anaJP.length ? `<span class="mark na">△</span> ${a.anaJP.map(n).join('・')}発のみ（国内線を足せば同マイル）` : `<span class="mark ng">×</span> なし`;
+    h += `<div class="box"><div class="l">ANA便のみ（${a.ret ? '往復' : '片道'}参考）</div><div class="big">${fmt(a.anaMiles)}</div><div class="muted" style="font-size:12px">${esc(a.anaNote || (a.dep ? 'シーズン制' : ''))}</div>${a.fuelRT != null && charts().anaChart[a.dz] ? `<div class="muted" style="font-size:12px">燃油 約¥${fmt(a.fuelRT)}/人（${a.ret ? '往復' : '片道'}・${esc(fuelAsOf)}）</div>` : (charts().anaChart[a.dz] ? '' : '<div class="muted" style="font-size:12px">ANA 便の路線なし</div>')}</div>`;
+    h += `<div class="box"><div class="l">他社便・海外乗継（${a.ret ? '往復' : '片道'}参考）</div><div class="big">${fmt(a.pMiles)}</div><div class="muted" style="font-size:12px">${a.anaMiles != null && a.pMiles != null && a.anaMiles > a.pMiles ? `▲${fmt(a.anaMiles - a.pMiles)}` : '通年固定'}</div><div class="muted" style="font-size:12px">燃油は運航会社次第（SQ・VN は 0 円）</div></div>`;
+    const direct = a.anaDirectFrom ? `<span class="mark ok">○</span> ${esc(n(q.origin))}発あり` : a.anaJP.length ? `<span class="mark na">△</span> ${a.anaJP.map(n).join('・')}発のみ（国内線の空席・旅程は別途確認）` : `<span class="mark ng">×</span> なし`;
     const others = a.othersFrom.length ? a.othersFrom.map(cname).join('・') : (a.others.length ? `他都市発: ${a.others.map(o => cname(o.c)).join('・')}` : 'なし');
     h += `<div class="box"><div class="l">ANA直行便</div><div>${direct}</div><div class="muted" style="font-size:12px">他社直行: ${esc(others)}</div></div>`;
     h += `</div></div>`;
+    h += searchGuide();
     h += renderLive();
     return h;
   }
@@ -688,7 +733,7 @@
     if (hol.length) h += `<div class="hol">祝日: ${hol.map(x => `${m}/${x.day} ${esc(x.name)}`).join('　')}</div>`;
     // ANAシーズン区分（連続する同一シーズンをまとめて表示）
     const runs = []; for (let d = 1; d <= days; d++) { const s = seasonOf(`${y}-${pad2(m)}-${pad2(d)}`); const last = runs[runs.length - 1]; if (last && last.s === s) last.to = d; else runs.push({ s, from: d, to: d }); }
-    h += `<div class="seasonline">ANAシーズン: ${runs.map(r => `${r.from === 1 && r.to === days ? '全日' : r.from === r.to ? `${r.from}日` : `${r.from}〜${r.to}日`}<span class="season ${r.s}">${SEASON_NAME[r.s]}</span>`).join('　')}</div>`;
+    h += `<div class="seasonline">ANAシーズン: ${runs.map(r => `${r.from === 1 && r.to === days ? '全日' : r.from === r.to ? `${r.from}日` : `${r.from}〜${r.to}日`}<span class="season ${r.s}">${SEASON_NAME[r.s] || '未登録'}</span>`).join('　')}</div>`;
     h += `<div class="legend">赤＝日曜・祝日　青＝土曜　●＝今日　シーズンはANA便のみに影響（提携便は通年固定）</div></div>`;
     return h;
   }
@@ -768,7 +813,7 @@
       <textarea id="chartJson">${esc(JSON.stringify({ partnerChart: ch.partnerChart, partnerCityOverride: ch.partnerCityOverride, anaChart: ch.anaChart, anaSeasons: ch.anaSeasons, anaFuel: ch.anaFuel, jalChart: ch.jalChart }, null, 2))}</textarea>
       <div class="row" style="margin-top:8px"><button class="btn primary" data-act="saveChart">チャートを保存</button><button class="btn" data-act="resetChart">既定値に戻す</button><button class="btn" data-act="resetAll">全データを初期化</button></div>
       <div id="chartMsg"></div>
-      <p class="muted" style="margin-top:12px">データ版 ${esc(D.version)}。必要マイルは推定値を含みます。予約前にANA公式の必要マイル数・ルールを必ず確認してください。本アプリはANAのサイトに自動アクセスしません。</p></details></div>`;
+      <p class="muted" style="margin-top:12px">データ版 ${esc(D.version)}。ANAマイル・シーズンは公式チャート、燃油は推定を含みます。予約前にANA公式の必要マイル数・ルールを必ず確認してください。本アプリはANAのサイトに自動アクセスしません。</p></details></div>`;
   }
 
   let loginBusy = false;
@@ -817,7 +862,7 @@
     if (act.startsWith('calnav:')) { const [y, m] = (S._calMonth || todayISO().slice(0, 7)).split('-').map(Number); const d = new Date(y, m - 1 + Number(act.slice(7)), 1); S._calMonth = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; save(); render(); return; }
     if (act.startsWith('calpick:')) { const [, key, iso] = act.split(':'); S.dates[key] = iso; LIVE.results = null; LIVE.status = 'idle'; LIVE.log = []; S._cal = null; save(); render(); return; }
     if (act.startsWith('calclear:')) { const key = act.slice(9); delete S.dates[key]; LIVE.results = null; LIVE.status = 'idle'; LIVE.log = []; S._cal = null; save(); render(); return; }
-    if (act === 'saveChart') { const m = document.getElementById('chartMsg'); try { const o = JSON.parse(document.getElementById('chartJson').value); if (!o.partnerChart || !o.anaChart) throw new Error('partnerChart と anaChart が必要です'); o.partnerCityOverride = o.partnerCityOverride || {}; o.anaSeasons = o.anaSeasons || D.anaSeasons; o.anaFuel = o.anaFuel || D.anaFuel; o.jalChart = o.jalChart || D.jalChart; S.chartOverride = o; save(); m.innerHTML = msg('ok', '保存しました。'); } catch (err) { m.innerHTML = msg('err', 'JSONエラー: ' + err.message); } }
+    if (act === 'saveChart') { const m = document.getElementById('chartMsg'); try { const o = JSON.parse(document.getElementById('chartJson').value); if (!o.partnerChart || !o.anaChart) throw new Error('partnerChart と anaChart が必要です'); o.rulesVersion = 2; o.partnerCityOverride = o.partnerCityOverride || {}; o.anaSeasons = o.anaSeasons || D.anaSeasons; o.anaFuel = o.anaFuel || D.anaFuel; o.jalChart = o.jalChart || D.jalChart; S.chartOverride = o; save(); m.innerHTML = msg('ok', '保存しました。'); } catch (err) { m.innerHTML = msg('err', 'JSONエラー: ' + err.message); } }
     if (act === 'openSettings') { S.tab = 'tips'; history.replaceState(null, '', location.pathname + '#settings'); save(); render(); return; }
     if (act === 'forgetConnection') { loginError = ''; loginBusy = false; delete S.settings.proxyToken; delete S.settings.seatsKey; proxyInfo = null; LIVE.cache = { out: null, ret: null }; save(); render(); return; }
     if (act === 'copyShare') { const url = location.origin + location.pathname; (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => { b.textContent = 'コピーしました'; }).catch(() => { window.prompt('このURLをコピーしてください', url); }); return; }
