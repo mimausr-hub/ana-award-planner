@@ -94,3 +94,9 @@ test('published season calendars have exactly one season per covered day',()=>{
   }
  }
 });
+
+test('already departed Japan flights are excluded even on the current date',()=>{
+ const {t,E}=setup([]);t.state.q.dest='BKK';
+ const R={L1:E.normalize([rawLeg('NRT','BKK','TG641','2026-10-18')]),L2:[],L2b:[],L3:[],L3b:[],L4:[],oAps:['NRT'],fAps:['NRT'],dAps:['BKK'],hubsAll:[],regional:[],w:0,dep:'2026-10-18',ret:''};
+ assert.equal(t.buildGroup('star','C',['out'],R,()=>{}).partners.find(p=>p.cfg.c==='TG').outC.length,0);
+});

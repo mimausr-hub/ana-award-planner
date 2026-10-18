@@ -287,7 +287,8 @@
     const SURE_MAX_H = 72;
     const reliable = l => { if (!sureMode()) return true; const h = ageOf(l); return h !== null && h <= SURE_MAX_H && l.seats != null && l.seats >= paxN() && l.sharedEvidence; };
     let dropped = 0;
-    const byCab = arr => { const c = arr.filter(l => l.date >= todayISO() && l.cabin === cabin && (!G.ana || anaAllowedLeg(l))).map(l => E.select(l, paxN(), !G.ana)); const r = c.filter(reliable); dropped += c.length - r.length; return r; };
+    const notDeparted = l => l.date >= todayISO() && (zone(cityOfAp(l.o)) !== 1 || (tmin(l.dep) != null && (tmin(l.dep) - 9 * 60) * 60000 > Date.now()));
+    const byCab = arr => { const c = arr.filter(l => notDeparted(l) && l.cabin === cabin && (!G.ana || anaAllowedLeg(l))).map(l => E.select(l, paxN(), !G.ana)); const r = c.filter(reliable); dropped += c.length - r.length; return r; };
     const L1 = byCab(R.L1), L2 = byCab(R.L2), L2b = byCab(R.L2b || []), L3 = byCab(R.L3), L3b = byCab(R.L3b || []), L4 = byCab(R.L4);
     if (sureMode()) log(`根拠を絞る: 観測から${SURE_MAX_H}時間超・時刻不明・人数不足/不明・他社提携枠の根拠がない便 ${dropped} 件を除外`);
     const cfgs = G.carriers().filter(cfg => cfg.zones.includes(dz));
