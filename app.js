@@ -283,14 +283,14 @@
     const q = S.q; const dz = zone(q.dest); const G = LIVE_GROUPS[alliance];
     const g = { alliance, cabin, sides, direct: null, partners: [] }; rankOw = !G.ana;
     const doOut = sides.includes('out'), doRet = sides.includes('ret') && !!R.ret;
-    // 根拠を絞るモード: 組合せを作る前に、3 日以上前のデータの便と、運航会社の会員枠にしか出ていない便を除く
+    // 根拠を絞るモード。VNの別提携在庫は参考候補として残し、ANA向けの強い根拠にはしない。
     const SURE_MAX_H = 72;
-    const reliable = l => { if (!sureMode()) return true; const h = ageOf(l); return h !== null && h <= SURE_MAX_H && l.seats != null && l.seats >= paxN() && l.sharedEvidence; };
+    const reliable = l => { if (!sureMode()) return true; const h = ageOf(l); return h !== null && h <= SURE_MAX_H && l.seats != null && l.seats >= paxN() && (l.sharedEvidence || l.referenceEvidence); };
     let dropped = 0;
     const notDeparted = l => l.date >= todayISO() && (zone(cityOfAp(l.o)) !== 1 || (tmin(l.dep) != null && (tmin(l.dep) - 9 * 60) * 60000 > Date.now()));
     const byCab = arr => { const c = arr.filter(l => notDeparted(l) && l.cabin === cabin && (!G.ana || anaAllowedLeg(l))).map(l => E.select(l, paxN(), !G.ana)); const r = c.filter(reliable); dropped += c.length - r.length; return r; };
     const L1 = byCab(R.L1), L2 = byCab(R.L2), L2b = byCab(R.L2b || []), L3 = byCab(R.L3), L3b = byCab(R.L3b || []), L4 = byCab(R.L4);
-    if (sureMode()) log(`根拠を絞る: 観測から${SURE_MAX_H}時間超・時刻不明・人数不足/不明・他社提携枠の根拠がない便 ${dropped} 件を除外`);
+    if (sureMode()) log(`根拠を絞る: 観測から${SURE_MAX_H}時間超・時刻不明・人数不足/不明・対象の他社観測がない便 ${dropped} 件を除外（VNの別提携在庫は参考として表示）`);
     const cfgs = G.carriers().filter(cfg => cfg.zones.includes(dz));
     for (const cfg of cfgs) {
       const isC = l => l.fn.startsWith(cfg.c);
@@ -581,7 +581,7 @@
     const cabCls = { Y: 'cab-y', PY: 'cab-py', C: 'cab-c', F: 'cab-f' }[g.cabin] || 'cab-y';
     let h = `<section class="grp ${cabCls} ${G.ana ? 'al-star' : 'al-ow'}"><div class="grp-head"><span class="cab-badge">${esc(CABINS[g.cabin])}</span><span class="al-badge">${esc(G.label)}</span>${g.fallback ? `<span class="grp-note">${esc(CABINS[LIVE.results.cabin])}が無かったので${g.sides.length < (S.dates['q.ret'] ? 2 : 1) ? `${g.sides.map(s => SIDE_LABEL[s]).join('・')}だけ` : ''}エコノミーで再探索</span>` : ''}</div><div class="grp-body">`;
     groupSummary(g).forEach(s => { h += msg(s.ok ? 'ok' : 'warn', s.t); });
-    if (sureMode()) h += `<div class="msg info">人数分の席数・72時間以内の観測時刻・運航会社以外の提携プログラムの根拠が揃う便を表示しています。「根拠が比較的強い」は全区間で24時間以内の複数提供元が人数条件に一致した候補です。予約成功率ではありません。公式確認前はすべて未確認です。</div>`;
+    if (sureMode()) h += `<div class="msg info">人数分の席数・72時間以内の観測時刻・対象の他社観測が揃う便を表示しています。ベトナム航空の別提携在庫は参考候補です。「根拠が比較的強い」は全区間で24時間以内の複数提供元が人数条件に一致した候補です。予約成功率ではありません。公式確認前はすべて未確認です。</div>`;
     if (fuelSaver() && g.partners.some(p => p.outC.length || p.retC.length)) h += `<div class="msg info">燃油節約モード: 各候補に燃油の目安（運航会社の燃油設定と区間から見積もり。ANA 便と UA の日本発着区間は ANA 公式表、SQ・VN・NZ・コパ・アビアンカ・エチオピアは 0 円、その他は会社ごとの係数）を付け、安い順に並べています。正確な額は ANA サイトの「税金・料金等」で確認してください。</div>`;
     h += `<table class="sum" style="margin-top:6px"><thead><tr><th>航空会社</th><th>往路 <span class="muted" style="font-weight:400">候補日の数（往路ありを先に）</span></th><th>復路 <span class="muted" style="font-weight:400">候補日の数</span></th><th>${G.ana ? 'ANAマイル参考' : 'JALマイル'}</th><th>燃油</th><th></th></tr></thead><tbody>`;
     if (g.direct) {
@@ -643,7 +643,7 @@
           ${S.cabin !== 'Y' ? `<dt>${esc(CABINS[S.cabin])}が無ければエコノミーも探す</dt><dd>希望クラスの候補が見つからない場合、候補のない往路・復路だけエコノミーでも探します。片方に希望クラスの空席があれば、その候補は残します。日程を優先したいときに便利です。</dd>` : ''}
           <dt>参考: ワンワールド系も見る</dt><dd>JAL直行便や、カタール航空・フィンエアー・キャセイパシフィックなどの乗り継ぎ候補も別枠で表示します。他のマイレージも使える場合に、行き方や空席を比較できます。</dd>
           <dt>燃油サーチャージを減らす</dt><dd>便ごとの燃油サーチャージを見積もり、目安が安い候補を優先して並べます。乗り継ぎ回数や希望日への近さよりも燃油の安さを優先します。税金・空港使用料を含む総額ではないため、支払額は予約画面で確認してください。</dd>
-          <dt>根拠の揃う候補に絞る</dt><dd>観測から72時間を超えた便と、運航会社の会員向けの枠しか確認できない便を除外します。時刻不明・席数不明や人数不足の便も除外します。席数と時刻は同じ提供元の観測を使い、複数提供元の一致と最も弱い区間をもとに並べます。予約の成功を保証するものではなく、候補が少なければオフにして探し直せます。</dd>
+          <dt>根拠の揃う候補に絞る</dt><dd>観測から72時間を超えた便と、運航会社の会員向けの枠しか確認できない便を除外します。時刻不明・席数不明や人数不足の便も除外します。ベトナム航空はFlying Blue等の別提携在庫を「参考候補」として残しますが、ANAの空席を確認した意味ではありません。席数と時刻は同じ提供元の観測を使い、複数提供元の一致と最も弱い区間をもとに並べます。予約の成功を保証するものではなく、候補が少なければオフにして探し直せます。</dd>
         </dl>
         <p class="muted">「燃油サーチャージを減らす」と「根拠の揃う候補に絞る」を両方オンにすると、候補を絞ったうえで燃油の安さを優先し、同程度なら根拠の強い順に表示します。</p>
       </div>

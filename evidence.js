@@ -15,6 +15,9 @@
   };
   const seatCount = value => Number.isInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
   const shared = (l, source, ow) => ow ? source === 'jal' || !!(OW[source] && OW[source] !== op(l)) : !!((window.AWARD_DATA.starCodes || []).includes(op(l)) && STAR[source] && STAR[source] !== op(l));
+  // VN is an ANA bilateral partner. Its other-program observations are useful
+  // reference candidates, but must never count as Star Alliance corroboration.
+  const reference = (l, source, ow) => !ow && op(l) === 'VN' && !!source && (window.AWARD_DATA.seatsSources.vn || '').split(',').includes(source);
   function normalize(data) {
     const seen = new Map(), cabins = { economy: 'Y', premium: 'PY', business: 'C', first: 'F' };
     for (const it of data || []) for (const t of it.AvailabilityTrips || []) {
@@ -44,12 +47,13 @@
   function select(l, pax, ow = false, now = Date.now()) {
     const observations = l.observations || [];
     const eligible = observations.filter(x => shared(l, x.source, ow));
-    const pool = eligible.length ? eligible : observations;
+    const references = observations.filter(x => reference(l, x.source, ow));
+    const pool = eligible.length ? eligible : references.length ? references : observations;
     const sufficient = pool.filter(x => x.seats !== null && x.seats >= pax);
     const sorted = (sufficient.length ? sufficient : pool).slice().sort((a, b) => (hours(a.upd, now) ?? Infinity) - (hours(b.upd, now) ?? Infinity) || (a.seats ?? 0) - (b.seats ?? 0));
     const chosen = sorted[0] || { seats: null, upd: '', source: '' };
     return { ...l, seats: chosen.seats, upd: chosen.upd, selectedSource: chosen.source,
-      srcs: observations.map(x => x.source).filter(Boolean), sharedEvidence: eligible.length > 0 };
+      srcs: observations.map(x => x.source).filter(Boolean), sharedEvidence: eligible.length > 0, referenceEvidence: references.length > 0 };
   }
   function assess(l, pax, ow = false, now = Date.now()) {
     const selected = select(l, pax, ow, now), h = hours(selected.upd, now);

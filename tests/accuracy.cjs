@@ -84,6 +84,30 @@ test('VN observations never become ANA shared evidence, even with an unexpected 
  const {E,legs}=setup([observation('united',2,ago(1),{FlightNumbers:'VN321'})]);
  assert.equal(E.select(legs[0],1).sharedEvidence,false);assert.equal(E.assess(legs[0],1).level,0);
 });
+test('default search retains recent VN reference seats without promoting them to ANA evidence',()=>{
+ const {t,E}=setup([],2);t.state.q={origin:'OSA',dest:'SGN',final:'OSA'};
+ const make=(source,seats,updated,fn='VN321')=>{
+  const r=rawLeg('KIX','SGN',fn);r.Source=source;
+  Object.assign(r.AvailabilityTrips[0],{RemainingSeats:seats,UpdatedAt:updated});return r;
+ };
+ const R={L1:E.normalize([make('flyingblue',2,ago(2)),make('delta',2,ago(1)),make('united',9,ago(0)),
+  make('flyingblue',2,ago(73),'VN323'),make('delta',1,ago(1),'VN325'),make('delta',0,ago(1),'VN327'),make('delta',2,'','VN329'),make('united',2,ago(1),'VN331')]),L2:[],L2b:[],L3:[],L3b:[],L4:[],oAps:['KIX','ITM'],fAps:['KIX','ITM'],dAps:['SGN'],hubsAll:['HAN'],regional:[],w:0,dep:'2026-11-02',ret:''};
+ const g=t.buildGroup('star','C',['out'],R,()=>{}),vn=g.partners.find(p=>p.cfg.c==='VN');
+ assert.equal(vn.outC.length,1);const leg=vn.outC[0].legs[0];
+ assert.equal(leg.fn,'VN321');assert.equal(leg.selectedSource,'delta');assert.equal(leg.seats,2);
+ assert.equal(leg.sharedEvidence,false);assert.equal(leg.referenceEvidence,true);
+ assert.equal(t.confidence(vn.outC[0],false).grade,'参考候補');assert.equal(E.assess(leg,2).corroborated,false);
+ t.live.results={cabin:'C',groups:[g]};const html=t.renderGroup(g,0);
+ assert.match(html,/別提携の在庫・ANA未確認/);assert.match(html,/参考候補/);assert.doesNotMatch(html,/class="grade ga"/);
+});
+test('SQ connections remain eligible when Japan and onward sectors are both observed',()=>{
+ const {t,E}=setup([],2);t.state.q={origin:'OSA',dest:'SGN',final:'OSA'};
+ const a=rawLeg('KIX','SIN','SQ621'),b=rawLeg('SIN','SGN','SQ178');
+ b.AvailabilityTrips[0].DepartsAt='2026-11-02T07:00:00Z';b.AvailabilityTrips[0].ArrivesAt='2026-11-02T09:00:00Z';
+ const R={L1:E.normalize([a]),L2:E.normalize([b]),L2b:[],L3:[],L3b:[],L4:[],oAps:['KIX','ITM'],fAps:['KIX','ITM'],dAps:['SGN'],hubsAll:['SIN'],regional:[],w:0,dep:'2026-11-02',ret:''};
+ const sq=()=>t.buildGroup('star','C',['out'],R,()=>{}).partners.find(p=>p.cfg.c==='SQ');
+ assert.equal(sq().outC.length,1);R.L1=[];assert.equal(sq().outC.length,0);
+});
 test('published season calendars have exactly one season per covered day',()=>{
  const {t,D}=setup([]);
  for(const [group,dest] of [['asia','TPE'],['west','LON'],['pacific','HNL']]) for(const year of [2026,2027,2028]) {
